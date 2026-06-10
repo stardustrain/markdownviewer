@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { createEvent, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MarkdownView } from "./MarkdownView";
 
@@ -116,6 +116,38 @@ describe("MarkdownView", () => {
       await user.click(screen.getByRole("link", { name: "공식 문서" }));
 
       expect(clickedUrls).toEqual(["https://tauri.app/"]);
+    });
+
+    test("링크 클릭의 기본 네비게이션을 막습니다.", () => {
+      render(
+        <MarkdownView
+          source={"[공식 문서](https://tauri.app/)"}
+          onLinkClick={noopLinkClick}
+        />,
+      );
+
+      const link = screen.getByRole("link", { name: "공식 문서" });
+      const clickEvent = createEvent.click(link);
+      fireEvent(link, clickEvent);
+
+      expect(clickEvent.defaultPrevented).toBe(true);
+    });
+
+    test("href가 없는 앵커는 onLinkClick을 호출하지 않습니다.", async () => {
+      const user = userEvent.setup();
+      const clickedUrls: string[] = [];
+      render(
+        <MarkdownView
+          source={"<a>이름 없는 앵커</a>"}
+          onLinkClick={({ url }) => {
+            clickedUrls.push(url);
+          }}
+        />,
+      );
+
+      await user.click(screen.getByText("이름 없는 앵커"));
+
+      expect(clickedUrls).toEqual([]);
     });
   });
 

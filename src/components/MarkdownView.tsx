@@ -1,3 +1,4 @@
+import type { RehypeShikiCoreOptions } from "@shikijs/rehype/core";
 import rehypeShikiFromHighlighter from "@shikijs/rehype/core";
 import Markdown, { type Options } from "react-markdown";
 import rehypeRaw from "rehype-raw";
@@ -15,17 +16,13 @@ const shikiOptions = {
   fallbackLanguage: "text",
   defaultLanguage: "text",
   // 주의: lazy: true 금지 — 파이프라인이 비동기가 되어 동기 <Markdown>이 크래시한다
-};
+} satisfies RehypeShikiCoreOptions;
 
-// rehypeRaw는 raw HTML 노드를 실제 hast 노드로 변환하므로 shiki보다 먼저 실행돼야 한다.
-// 명시적 tuple 타입 선언으로 type assertion 없이 PluggableList 호환성을 확보한다.
-const shikiTuple: [
-  typeof rehypeShikiFromHighlighter,
-  typeof highlighter,
-  typeof shikiOptions,
-] = [rehypeShikiFromHighlighter, highlighter, shikiOptions];
-
-const rehypePlugins: Options["rehypePlugins"] = [rehypeRaw, shikiTuple];
+// 주의: rehypeRaw는 raw HTML 노드를 실제 hast 노드로 변환하므로 shiki보다 먼저 와야 한다
+const rehypePlugins: Options["rehypePlugins"] = [
+  rehypeRaw,
+  [rehypeShikiFromHighlighter, highlighter, shikiOptions],
+];
 
 type MarkdownViewProps = {
   /** 렌더할 마크다운 원문 */
