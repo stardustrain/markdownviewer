@@ -76,6 +76,30 @@ describe("MarkdownView", () => {
       );
     });
   });
+  context("마크다운 내 HTML 태그가 있는 경우", () => {
+    test("kbd 같은 인라인 태그를 렌더합니다.", () => {
+      const { container } = render(
+        <MarkdownView
+          source={"<kbd>Cmd</kbd> + <kbd>O</kbd>"}
+          onLinkClick={noopLinkClick}
+        />,
+      );
+
+      expect(container.querySelectorAll("kbd")).toHaveLength(2);
+    });
+
+    test("details/summary 블록을 렌더합니다.", () => {
+      const { container } = render(
+        <MarkdownView
+          source={"<details><summary>요약</summary>본문</details>"}
+          onLinkClick={noopLinkClick}
+        />,
+      );
+
+      expect(container.querySelector("details")).toHaveTextContent("요약");
+    });
+  });
+
   context("YAML frontmatter가 있는 경우", () => {
     test("frontmatter는 본문에 표시하지 않습니다.", () => {
       render(

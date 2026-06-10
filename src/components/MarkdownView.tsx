@@ -1,5 +1,6 @@
 import rehypeShikiFromHighlighter from "@shikijs/rehype/core";
 import Markdown, { type Options } from "react-markdown";
+import rehypeRaw from "rehype-raw";
 import remarkFrontmatter from "remark-frontmatter";
 import remarkGfm from "remark-gfm";
 import { highlighter } from "../lib/highlighter";
@@ -16,14 +17,15 @@ const shikiOptions = {
   // 주의: lazy: true 금지 — 파이프라인이 비동기가 되어 동기 <Markdown>이 크래시한다
 };
 
-// PluginTuple 형태로 선언 — react-markdown의 rehypePlugins prop은 PluggableList(= Pluggable[])를 기대하고,
-// PluginTuple은 [plugin, ...settings] 형태의 Pluggable이다.
-// satisfies/as 없이 명시적 타입으로 선언해 type assertion을 피한다.
-const rehypePlugins: [
+// rehypeRaw는 raw HTML 노드를 실제 hast 노드로 변환하므로 shiki보다 먼저 실행돼야 한다.
+// 명시적 tuple 타입 선언으로 type assertion 없이 PluggableList 호환성을 확보한다.
+const shikiTuple: [
   typeof rehypeShikiFromHighlighter,
   typeof highlighter,
   typeof shikiOptions,
-][] = [[rehypeShikiFromHighlighter, highlighter, shikiOptions]];
+] = [rehypeShikiFromHighlighter, highlighter, shikiOptions];
+
+const rehypePlugins: Options["rehypePlugins"] = [rehypeRaw, shikiTuple];
 
 type MarkdownViewProps = {
   /** 렌더할 마크다운 원문 */
