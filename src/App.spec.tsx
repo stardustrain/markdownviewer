@@ -67,41 +67,20 @@ describe("App", () => {
     });
   });
 
-  context("Cmd+O를 누르는 경우", () => {
+  context("메뉴의 Open을 실행하는 경우", () => {
     test("빈 상태에서도 파일 열기를 트리거합니다.", async () => {
       const fakeDeps = createFakeDeps({
         pickedPaths: ["/tmp/note.md"],
-        files: { "/tmp/note.md": "# 단축키로 열기" },
+        files: { "/tmp/note.md": "# 메뉴로 열기" },
       });
       render(<App {...fakeDeps.props} />);
 
       act(() => {
-        window.dispatchEvent(
-          new KeyboardEvent("keydown", { key: "o", metaKey: true }),
-        );
+        fakeDeps.triggerMenuOpen();
       });
 
       expect(
-        await screen.findByRole("heading", { name: "단축키로 열기" }),
-      ).toBeInTheDocument();
-    });
-
-    test("metaKey 없이 o만 누르면 열기를 트리거하지 않습니다.", async () => {
-      const fakeDeps = createFakeDeps({
-        pickedPaths: ["/tmp/note.md"],
-        files: { "/tmp/note.md": "# 단축키로 열기" },
-      });
-      render(<App {...fakeDeps.props} />);
-
-      act(() => {
-        window.dispatchEvent(new KeyboardEvent("keydown", { key: "o" }));
-      });
-      // 비동기 열기가 일어나지 않았음을 microtask flush 후 확인
-      await act(async () => {});
-
-      expect(fakeDeps.readPaths).toHaveLength(0);
-      expect(
-        screen.getByRole("button", { name: /파일 열기/ }),
+        await screen.findByRole("heading", { name: "메뉴로 열기" }),
       ).toBeInTheDocument();
     });
   });
@@ -151,9 +130,7 @@ describe("App", () => {
       });
       expect(openButtons).toHaveLength(0); // 문서가 열리면 빈 상태 버튼은 사라진다
       act(() => {
-        window.dispatchEvent(
-          new KeyboardEvent("keydown", { key: "o", metaKey: true }),
-        );
+        fakeDeps.triggerMenuOpen();
       });
 
       expect(await screen.findByRole("alert")).toHaveTextContent(/읽기 실패/);
@@ -193,6 +170,7 @@ function createFakeDeps({ pickedPaths = [], files = {} }: CreateFakeDepsParams) 
   const remainingPicks = [...pickedPaths];
   const readPaths: string[] = [];
   const fakeSubscriber = createFakeDragDropSubscriber();
+  let menuOpenHandler: (() => void) | null = null;
   const props = {
     pickFile: () => Promise.resolve(remainingPicks.shift() ?? null),
     readFile: ({ path }: { path: string }) => {
@@ -204,8 +182,18 @@ function createFakeDeps({ pickedPaths = [], files = {} }: CreateFakeDepsParams) 
       return Promise.resolve(content);
     },
     subscribeDragDrop: fakeSubscriber.subscribe,
+    installMenu: ({ onOpen }: { onOpen: () => void }) => {
+      menuOpenHandler = onOpen;
+    },
   };
-  return { props, readPaths, emitDragDrop: fakeSubscriber.emit };
+  return {
+    props,
+    readPaths,
+    emitDragDrop: fakeSubscriber.emit,
+    triggerMenuOpen: () => {
+      menuOpenHandler?.();
+    },
+  };
 }
 
 function createFakeDragDropSubscriber() {

@@ -4,6 +4,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { useCallback, useEffect, useState } from "react";
 import { MarkdownView } from "./components/MarkdownView";
 import { type DragDropSubscriber, useFileDrop } from "./hooks/useFileDrop";
+import { installAppMenu } from "./lib/installAppMenu";
 import { isMarkdownPath, MARKDOWN_EXTENSIONS } from "./lib/isMarkdownPath";
 import "./App.css";
 
@@ -25,12 +26,17 @@ type AppProps = {
    * @default Tauri 웹뷰 구독 (useFileDrop의 기본값)
    */
   subscribeDragDrop?: DragDropSubscriber;
+  /** 네이티브 앱 메뉴 설치 — onOpen이 File > Open…(⌘O)의 액션이 된다
+   * @default installAppMenu 래퍼(installDefaultAppMenu)
+   */
+  installMenu?: (args: { onOpen: () => void }) => void;
 };
 
 function App({
   pickFile = pickMarkdownFile,
   readFile = readMarkdownFile,
   subscribeDragDrop,
+  installMenu = installDefaultAppMenu,
 }: AppProps) {
   const [openedDocument, setOpenedDocument] = useState<OpenedDocument | null>(
     null,
@@ -75,18 +81,12 @@ function App({
   });
 
   useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (!event.metaKey || event.key !== "o") {
-        return;
-      }
-      event.preventDefault();
-      void openViaDialog();
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [openViaDialog]);
+    installMenu({
+      onOpen: () => {
+        void openViaDialog();
+      },
+    });
+  }, [installMenu, openViaDialog]);
 
   return (
     <main className={isDragging ? "app dragging" : "app"}>
@@ -129,4 +129,8 @@ function readMarkdownFile({ path }: { path: string }): Promise<string> {
 
 function handleLinkClick({ url }: { url: string }) {
   void openUrl(url);
+}
+
+function installDefaultAppMenu({ onOpen }: { onOpen: () => void }) {
+  void installAppMenu({ onOpen });
 }
