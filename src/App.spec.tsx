@@ -21,6 +21,26 @@ describe("App", () => {
     });
   });
 
+  context("Cmd+O를 누르는 경우", () => {
+    test("빈 상태에서도 파일 열기를 트리거합니다.", async () => {
+      const fakeDeps = createFakeDeps({
+        pickedPaths: ["/tmp/note.md"],
+        files: { "/tmp/note.md": "# 단축키로 열기" },
+      });
+      render(<App {...fakeDeps.props} />);
+
+      act(() => {
+        window.dispatchEvent(
+          new KeyboardEvent("keydown", { key: "o", metaKey: true }),
+        );
+      });
+
+      expect(
+        await screen.findByRole("heading", { name: "단축키로 열기" }),
+      ).toBeInTheDocument();
+    });
+  });
+
   context("열기 버튼으로 파일을 여는 경우", () => {
     test("선택한 파일 내용을 렌더합니다.", async () => {
       const user = userEvent.setup();
