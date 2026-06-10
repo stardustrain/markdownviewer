@@ -100,6 +100,25 @@ describe("MarkdownView", () => {
     });
   });
 
+  context("본문에 링크가 있는 경우", () => {
+    test("링크 클릭 시 onLinkClick을 href로 호출합니다.", async () => {
+      const user = userEvent.setup();
+      const clickedUrls: string[] = [];
+      render(
+        <MarkdownView
+          source={"[공식 문서](https://tauri.app/)"}
+          onLinkClick={({ url }) => {
+            clickedUrls.push(url);
+          }}
+        />,
+      );
+
+      await user.click(screen.getByRole("link", { name: "공식 문서" }));
+
+      expect(clickedUrls).toEqual(["https://tauri.app/"]);
+    });
+  });
+
   context("YAML frontmatter가 있는 경우", () => {
     test("frontmatter는 본문에 표시하지 않습니다.", () => {
       render(

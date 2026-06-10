@@ -34,10 +34,29 @@ type MarkdownViewProps = {
   onLinkClick: (args: { url: string }) => void;
 };
 
-export function MarkdownView({ source }: MarkdownViewProps) {
+export function MarkdownView({ source, onLinkClick }: MarkdownViewProps) {
   return (
     <article className="markdown-body">
-      <Markdown remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins}>
+      <Markdown
+        remarkPlugins={remarkPlugins}
+        rehypePlugins={rehypePlugins}
+        components={{
+          a: ({ href, children }) => (
+            <a
+              href={href}
+              onClick={(event) => {
+                event.preventDefault();
+                if (href === undefined) {
+                  return;
+                }
+                onLinkClick({ url: href });
+              }}
+            >
+              {children}
+            </a>
+          ),
+        }}
+      >
         {source}
       </Markdown>
     </article>
