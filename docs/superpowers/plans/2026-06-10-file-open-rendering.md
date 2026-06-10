@@ -1459,3 +1459,20 @@ Expected: `app`/`dmg` 번들 생성, 패키지 앱 실행 시 fixture가 정상 
 git status --short
 ```
 Expected: 이 작업 범위의 tracked 변경 없음 (스캐폴드의 기존 untracked 파일은 그대로여도 됨).
+
+---
+
+### Task 9: 네이티브 File > Open… 메뉴 (스펙 §8 — 추가 결정)
+
+**Files:**
+- Create: `src/lib/installAppMenu.ts` (TDD 예외 — Tauri 글루, 커버리지 exclude)
+- Modify: `src/App.tsx` (keydown 제거, installMenu DI 추가)
+- Modify: `src/App.spec.tsx` (Cmd+O keydown 테스트 2건 → 메뉴 트리거 테스트로 교체)
+- Modify: `vitest.config.ts` (coverage exclude에 installAppMenu.ts 추가)
+
+- [ ] **Step 1 (RED):** App.spec.tsx 수정 — `createFakeDeps`에 fake installMenu(onOpen 캡처) + `triggerMenuOpen` 추가, `context("Cmd+O를 누르는 경우")`를 `context("메뉴의 Open을 실행하는 경우")`로 교체(트리거 = triggerMenuOpen), "metaKey 없이..." 가드 테스트 삭제, 실패-경로 테스트의 keydown dispatch도 triggerMenuOpen으로 교체. 실행 → App에 installMenu prop이 없어 tsc/테스트 FAIL 확인.
+- [ ] **Step 2 (GREEN):** App.tsx — keydown useEffect 제거, `installMenu` prop(기본값 `installDefaultAppMenu` 하단 함수 선언) + `useEffect(() => { installMenu({ onOpen: ... }); }, [installMenu, openViaDialog])` 추가. `src/lib/installAppMenu.ts` 생성(Menu.default → File 서브메뉴 텍스트 탐색 → Open… 삽입(0번, CmdOrCtrl+O) → setAsAppMenu → previous.close(), 모듈 installed 플래그).
+- [ ] **Step 3:** vitest.config.ts coverage exclude에 `'src/lib/installAppMenu.ts'` 추가 (Tauri 글루 — main.tsx와 동일 취급).
+- [ ] **Step 4:** `pnpm test`(36 유지 — 삭제 1 + 추가 1) + `pnpm exec tsc --noEmit` + `pnpm coverage`(App.tsx 브랜치 100% 유지) + `pnpm build` 전부 green 확인.
+- [ ] **Step 5:** Commit — `feat: add native File > Open menu item and retire keydown shortcut`
+- [ ] **Step 6 (수동):** File 메뉴 Open…(⌘O) 표시·클릭 동작, ⌘O 정확히 1회 오픈, Edit 복사/붙여넣기 정상 (스펙 §8 체크리스트).
