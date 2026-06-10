@@ -76,6 +76,19 @@ describe("MarkdownView", () => {
       );
     });
   });
+  context("YAML frontmatter가 있는 경우", () => {
+    test("frontmatter는 본문에 표시하지 않습니다.", () => {
+      render(
+        <MarkdownView
+          source={"---\ntitle: secret\n---\n\n# 제목"}
+          onLinkClick={noopLinkClick}
+        />,
+      );
+
+      expect(screen.queryByText(/title: secret/)).not.toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "제목" })).toBeInTheDocument();
+    });
+  });
 });
 
 function noopLinkClick() {

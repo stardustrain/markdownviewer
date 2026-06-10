@@ -1,9 +1,10 @@
 import rehypeShikiFromHighlighter from "@shikijs/rehype/core";
 import Markdown, { type Options } from "react-markdown";
+import remarkFrontmatter from "remark-frontmatter";
 import remarkGfm from "remark-gfm";
 import { highlighter } from "../lib/highlighter";
 
-const remarkPlugins: Options["remarkPlugins"] = [remarkGfm];
+const remarkPlugins: Options["remarkPlugins"] = [remarkGfm, remarkFrontmatter];
 
 const shikiOptions = {
   themes: { light: "github-light", dark: "github-dark" },
