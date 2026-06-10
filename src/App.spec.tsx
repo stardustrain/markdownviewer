@@ -21,6 +21,52 @@ describe("App", () => {
     });
   });
 
+  context("파일을 드롭하는 경우", () => {
+    test("드롭된 경로 중 첫 마크다운 파일을 엽니다.", async () => {
+      const fakeDeps = createFakeDeps({
+        files: { "/tmp/note.md": "# 드롭으로 열기" },
+      });
+      render(<App {...fakeDeps.props} />);
+
+      act(() => {
+        fakeDeps.emitDragDrop({
+          type: "drop",
+          paths: ["/tmp/image.png", "/tmp/note.md"],
+        });
+      });
+
+      expect(
+        await screen.findByRole("heading", { name: "드롭으로 열기" }),
+      ).toBeInTheDocument();
+      expect(fakeDeps.readPaths).toEqual(["/tmp/note.md"]);
+    });
+
+    test("마크다운 파일이 없으면 무시합니다.", async () => {
+      const fakeDeps = createFakeDeps({});
+      render(<App {...fakeDeps.props} />);
+
+      act(() => {
+        fakeDeps.emitDragDrop({ type: "drop", paths: ["/tmp/image.png"] });
+      });
+
+      expect(fakeDeps.readPaths).toHaveLength(0);
+      expect(
+        screen.getByRole("button", { name: /파일 열기/ }),
+      ).toBeInTheDocument();
+    });
+
+    test("드래그 중에는 dragging 클래스로 하이라이트합니다.", () => {
+      const fakeDeps = createFakeDeps({});
+      const { container } = render(<App {...fakeDeps.props} />);
+
+      act(() => {
+        fakeDeps.emitDragDrop({ type: "enter", paths: ["/tmp/note.md"] });
+      });
+
+      expect(container.querySelector("main.dragging")).not.toBeNull();
+    });
+  });
+
   context("Cmd+O를 누르는 경우", () => {
     test("빈 상태에서도 파일 열기를 트리거합니다.", async () => {
       const fakeDeps = createFakeDeps({
