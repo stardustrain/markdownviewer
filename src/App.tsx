@@ -1,51 +1,132 @@
-import { useState } from "react";
-import reactLogo from "./assets/react.svg";
 import { invoke } from "@tauri-apps/api/core";
+import { open } from "@tauri-apps/plugin-dialog";
+import { openUrl } from "@tauri-apps/plugin-opener";
+import { useCallback, useEffect, useState } from "react";
+import { MarkdownView } from "./components/MarkdownView";
+import { type DragDropSubscriber, useFileDrop } from "./hooks/useFileDrop";
+import { isMarkdownPath, MARKDOWN_EXTENSIONS } from "./lib/isMarkdownPath";
 import "./App.css";
 
-function App() {
-  const [greetMsg, setGreetMsg] = useState("");
-  const [name, setName] = useState("");
+type OpenedDocument = {
+  path: string;
+  content: string;
+};
 
-  async function greet() {
-    // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-    setGreetMsg(await invoke("greet", { name }));
-  }
+type AppProps = {
+  /** 파일 선택 다이얼로그 — 취소 시 null
+   * @default Tauri dialog open()
+   */
+  pickFile?: () => Promise<string | null>;
+  /** 경로의 파일 내용 읽기 — 실패 시 reject
+   * @default invoke("read_file")
+   */
+  readFile?: (args: { path: string }) => Promise<string>;
+  /** drag-drop 구독 — useFileDrop에 전달
+   * @default Tauri 웹뷰 구독 (useFileDrop의 기본값)
+   */
+  subscribeDragDrop?: DragDropSubscriber;
+};
+
+function App({
+  pickFile = pickMarkdownFile,
+  readFile = readMarkdownFile,
+  subscribeDragDrop,
+}: AppProps) {
+  const [openedDocument, setOpenedDocument] = useState<OpenedDocument | null>(
+    null,
+  );
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  const openPath = useCallback(
+    async ({ path }: { path: string }) => {
+      try {
+        const content = await readFile({ path });
+        setOpenedDocument({ path, content });
+        setErrorMessage(null);
+      } catch (error) {
+        setErrorMessage(String(error));
+      }
+    },
+    [readFile],
+  );
+
+  const openViaDialog = useCallback(async () => {
+    const path = await pickFile();
+    if (path === null) {
+      return;
+    }
+    await openPath({ path });
+  }, [pickFile, openPath]);
+
+  const handleDrop = useCallback(
+    ({ paths }: { paths: string[] }) => {
+      const markdownPath = paths.find((path) => isMarkdownPath({ path }));
+      if (markdownPath === undefined) {
+        return;
+      }
+      void openPath({ path: markdownPath });
+    },
+    [openPath],
+  );
+
+  const isDragging = useFileDrop({
+    onDrop: handleDrop,
+    subscribe: subscribeDragDrop,
+  });
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (!event.metaKey || event.key !== "o") {
+        return;
+      }
+      event.preventDefault();
+      void openViaDialog();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [openViaDialog]);
 
   return (
-    <main className="container">
-      <h1>Welcome to Tauri + React</h1>
-
-      <div className="row">
-        <a href="https://vite.dev" target="_blank">
-          <img src="/vite.svg" className="logo vite" alt="Vite logo" />
-        </a>
-        <a href="https://tauri.app" target="_blank">
-          <img src="/tauri.svg" className="logo tauri" alt="Tauri logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
-      </div>
-      <p>Click on the Tauri, Vite, and React logos to learn more.</p>
-
-      <form
-        className="row"
-        onSubmit={(e) => {
-          e.preventDefault();
-          greet();
-        }}
-      >
-        <input
-          id="greet-input"
-          onChange={(e) => setName(e.currentTarget.value)}
-          placeholder="Enter a name..."
+    <main className={isDragging ? "app dragging" : "app"}>
+      {errorMessage !== null && (
+        <div role="alert" className="error-banner">
+          {errorMessage}
+        </div>
+      )}
+      {openedDocument === null ? (
+        <div className="empty-state">
+          <p>마크다운 파일을 끌어다 놓거나 열기 버튼을 누르세요</p>
+          <button type="button" onClick={() => void openViaDialog()}>
+            파일 열기 (⌘O)
+          </button>
+        </div>
+      ) : (
+        <MarkdownView
+          source={openedDocument.content}
+          onLinkClick={handleLinkClick}
         />
-        <button type="submit">Greet</button>
-      </form>
-      <p>{greetMsg}</p>
+      )}
     </main>
   );
 }
 
 export default App;
+
+function pickMarkdownFile(): Promise<string | null> {
+  return open({
+    multiple: false,
+    directory: false,
+    filters: [{ name: "Markdown", extensions: MARKDOWN_EXTENSIONS }],
+  });
+}
+
+function readMarkdownFile({ path }: { path: string }): Promise<string> {
+  // invoke의 기본 반환은 Promise<unknown> — 제네릭으로 응답 타입을 지정한다(type assertion 아님)
+  return invoke<string>("read_file", { path });
+}
+
+function handleLinkClick({ url }: { url: string }) {
+  void openUrl(url);
+}
