@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git:*)",
+      "Bash(pnpm:*)",
+      "Bash(node:*)",
+      "Bash(find:*)",
+      "Bash(grep:*)",
+      "Bash(ls:*)",
+      "Bash(mkdir:*)",
+      "Skill(linear)",
+      "Skill(sdk-docs)",
+      "Skill(sdk-docs:*)",
+      "WebFetch",
+      "WebSearch"
+    ]
+  },
+  "enabledPlugins": {
+    "superpowers@superpowers-marketplace": true
+  }
+}
