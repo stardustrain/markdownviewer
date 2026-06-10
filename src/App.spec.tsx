@@ -85,6 +85,25 @@ describe("App", () => {
         await screen.findByRole("heading", { name: "단축키로 열기" }),
       ).toBeInTheDocument();
     });
+
+    test("metaKey 없이 o만 누르면 열기를 트리거하지 않습니다.", async () => {
+      const fakeDeps = createFakeDeps({
+        pickedPaths: ["/tmp/note.md"],
+        files: { "/tmp/note.md": "# 단축키로 열기" },
+      });
+      render(<App {...fakeDeps.props} />);
+
+      act(() => {
+        window.dispatchEvent(new KeyboardEvent("keydown", { key: "o" }));
+      });
+      // 비동기 열기가 일어나지 않았음을 microtask flush 후 확인
+      await act(async () => {});
+
+      expect(fakeDeps.readPaths).toHaveLength(0);
+      expect(
+        screen.getByRole("button", { name: /파일 열기/ }),
+      ).toBeInTheDocument();
+    });
   });
 
   context("열기 버튼으로 파일을 여는 경우", () => {
@@ -141,6 +160,24 @@ describe("App", () => {
       expect(
         screen.getByRole("heading", { name: "기존 문서" }),
       ).toBeInTheDocument();
+    });
+
+    test("실패 후 다시 성공하면 에러 배너가 사라집니다.", async () => {
+      const user = userEvent.setup();
+      const fakeDeps = createFakeDeps({
+        pickedPaths: ["/tmp/broken.md", "/tmp/good.md"],
+        files: { "/tmp/good.md": "# 복구된 문서" },
+      });
+      render(<App {...fakeDeps.props} />);
+      await user.click(screen.getByRole("button", { name: /파일 열기/ }));
+      await screen.findByRole("alert");
+
+      await user.click(screen.getByRole("button", { name: /파일 열기/ }));
+
+      expect(
+        await screen.findByRole("heading", { name: "복구된 문서" }),
+      ).toBeInTheDocument();
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     });
   });
 });
