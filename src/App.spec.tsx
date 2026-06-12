@@ -240,12 +240,12 @@ describe("App", () => {
       // pendingWatchings[1] = /tmp/b.md watch 대기 중
 
       act(() => {
-        fakeDeps.settlePendingWatching(1, "/tmp/b.md"); // b 먼저 완료
+        fakeDeps.settlePendingWatching({ index: 1, canonicalPath: "/tmp/b.md" }); // b 먼저 완료
       });
       await screen.findByRole("heading", { name: "문서B" });
 
       act(() => {
-        fakeDeps.settlePendingWatching(0, "/tmp/a.md"); // a 늦게 도착 — 무시되어야 함
+        fakeDeps.settlePendingWatching({ index: 0, canonicalPath: "/tmp/a.md" }); // a 늦게 도착 — 무시되어야 함
       });
       await act(async () => {});
 
@@ -269,7 +269,7 @@ describe("App", () => {
       await user.click(screen.getByRole("button", { name: /파일 열기/ }));
       await screen.findByRole("heading", { name: "버전1" });
 
-      fakeDeps.setFileContent("/tmp/note.md", "# 버전2");
+      fakeDeps.setFileContent({ path: "/tmp/note.md", content: "# 버전2" });
       act(() => {
         fakeDeps.emitFileWatch({ path: "/tmp/note.md", kind: "changed" });
       });
@@ -313,11 +313,11 @@ describe("App", () => {
       });
       await screen.findByRole("heading", { name: "버전1" });
 
-      fakeDeps.setFileContent("/tmp/note.md", "# 버전2");
+      fakeDeps.setFileContent({ path: "/tmp/note.md", content: "# 버전2" });
       act(() => {
         fakeDeps.emitFileWatch({ path: "/tmp/note.md", kind: "changed" });
       }); // pendingReads[1] = 버전2 스냅샷 (느린 읽기)
-      fakeDeps.setFileContent("/tmp/note.md", "# 버전3");
+      fakeDeps.setFileContent({ path: "/tmp/note.md", content: "# 버전3" });
       act(() => {
         fakeDeps.emitFileWatch({ path: "/tmp/note.md", kind: "changed" });
       }); // pendingReads[2] = 버전3 스냅샷
@@ -361,7 +361,7 @@ describe("App", () => {
       });
 
       // 두 번째 changed: 새 내용으로 복구 → pending[2] 은 나중에 resolve
-      fakeDeps.setFileContent("/tmp/note.md", "# 버전2");
+      fakeDeps.setFileContent({ path: "/tmp/note.md", content: "# 버전2" });
       act(() => {
         fakeDeps.emitFileWatch({ path: "/tmp/note.md", kind: "changed" });
       });
@@ -383,6 +383,37 @@ describe("App", () => {
         screen.getByRole("heading", { name: "버전2" }),
       ).toBeInTheDocument();
       expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    });
+
+    test("새 문서를 여는 동안 이전 문서의 변경 이벤트가 와도 열기가 완료됩니다.", async () => {
+      const user = userEvent.setup();
+      const fakeDeps = createFakeDeps({
+        pickedPaths: ["/tmp/a.md", "/tmp/b.md"],
+        files: { "/tmp/a.md": "# 문서A", "/tmp/b.md": "# 문서B" },
+        deferWatching: true,
+      });
+      render(<App {...fakeDeps.props} />);
+      await user.click(screen.getByRole("button", { name: /파일 열기/ }));
+      act(() => {
+        fakeDeps.settlePendingWatching({ index: 0, canonicalPath: "/tmp/a.md" });
+      });
+      await screen.findByRole("heading", { name: "문서A" });
+
+      // B 열기 시작 — startWatching이 pending인 동안 A의 변경 이벤트 도착
+      act(() => {
+        fakeDeps.triggerMenuOpen();
+      });
+      await act(async () => {});
+      act(() => {
+        fakeDeps.emitFileWatch({ path: "/tmp/a.md", kind: "changed" });
+      });
+      act(() => {
+        fakeDeps.settlePendingWatching({ index: 1, canonicalPath: "/tmp/b.md" });
+      });
+
+      expect(
+        await screen.findByRole("heading", { name: "문서B" }),
+      ).toBeInTheDocument();
     });
 
     test("재읽기에 실패하면 read-error 배너를 띄우고 내용을 유지합니다.", async () => {
@@ -442,7 +473,7 @@ describe("App", () => {
       });
       await screen.findByRole("alert");
 
-      fakeDeps.setFileContent("/tmp/note.md", "# 버전2");
+      fakeDeps.setFileContent({ path: "/tmp/note.md", content: "# 버전2" });
       act(() => {
         fakeDeps.emitFileWatch({ path: "/tmp/note.md", kind: "changed" });
       });
@@ -479,6 +510,37 @@ describe("App", () => {
         screen.getByRole("heading", { name: "버전1" }),
       ).toBeInTheDocument();
     });
+
+    test("삭제 배너는 진행 중이던 stale 재읽기가 지우지 못합니다.", async () => {
+      const user = userEvent.setup();
+      const fakeDeps = createFakeDeps({
+        pickedPaths: ["/tmp/note.md"],
+        files: { "/tmp/note.md": "# 버전1" },
+        deferReads: true,
+      });
+      render(<App {...fakeDeps.props} />);
+      await user.click(screen.getByRole("button", { name: /파일 열기/ }));
+      act(() => {
+        fakeDeps.settlePendingRead(0);
+      });
+      await screen.findByRole("heading", { name: "버전1" });
+
+      // 재읽기가 in-flight인 상태에서 removed 도착
+      act(() => {
+        fakeDeps.emitFileWatch({ path: "/tmp/note.md", kind: "changed" });
+      }); // pendingReads[1]
+      act(() => {
+        fakeDeps.emitFileWatch({ path: "/tmp/note.md", kind: "removed" });
+      });
+      await screen.findByRole("alert");
+
+      act(() => {
+        fakeDeps.settlePendingRead(1); // stale 읽기가 늦게 resolve
+      });
+      await act(async () => {});
+
+      expect(screen.getByRole("alert")).toHaveTextContent(/삭제/);
+    });
   });
 
   context("파일 watch 시작 조건", () => {
@@ -500,7 +562,7 @@ describe("App", () => {
       expect(screen.queryByRole("alert")).not.toBeInTheDocument();
 
       // fallback으로 원래 경로가 식별자 — changed 이벤트가 반영되어야 한다
-      fakeDeps.setFileContent("/tmp/note.md", "# 수정됨");
+      fakeDeps.setFileContent({ path: "/tmp/note.md", content: "# 수정됨" });
       act(() => {
         fakeDeps.emitFileWatch({ path: "/tmp/note.md", kind: "changed" });
       });
@@ -554,7 +616,10 @@ describe("App", () => {
       await act(async () => {});
       expect(fakeDeps.readPaths).toHaveLength(readsBefore);
 
-      fakeDeps.setFileContent("/private/tmp/note.md", "# 버전2");
+      fakeDeps.setFileContent({
+        path: "/private/tmp/note.md",
+        content: "# 버전2",
+      });
       act(() => {
         fakeDeps.emitFileWatch({ path: "/private/tmp/note.md", kind: "changed" });
       });
@@ -663,17 +728,31 @@ function createFakeDeps({
     emitFileWatch: (payload: FileWatchPayload) => {
       fileWatchHandler?.(payload);
     },
-    setFileContent: (path: string, content: string) => {
+    setFileContent: ({ path, content }: { path: string; content: string }) => {
       files[path] = content;
     },
     removeFile: (path: string) => {
       delete files[path];
     },
     settlePendingRead: (index: number) => {
-      pendingReads[index]?.settle();
+      const pending = pendingReads[index];
+      if (pending === undefined) {
+        throw new Error(`대기 중인 읽기가 없습니다: index ${index}`);
+      }
+      pending.settle();
     },
-    settlePendingWatching: (index: number, canonicalPath: string) => {
-      pendingWatchings[index]?.settle(canonicalPath);
+    settlePendingWatching: ({
+      index,
+      canonicalPath,
+    }: {
+      index: number;
+      canonicalPath: string;
+    }) => {
+      const pending = pendingWatchings[index];
+      if (pending === undefined) {
+        throw new Error(`대기 중인 watch가 없습니다: index ${index}`);
+      }
+      pending.settle(canonicalPath);
     },
   };
 }

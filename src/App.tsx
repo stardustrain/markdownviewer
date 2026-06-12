@@ -65,34 +65,39 @@ function App({
   // 문서의 단일 식별자(canonical 경로) — watcher 이벤트 필터용.
   // stable 콜백(handleFileWatchEvent)에서 stale 클로저 없이 읽기 위해 ref
   const openedPathRef = useRef<string | null>(null);
-  // 읽기 세대 — 늦게 resolve된 이전 읽기의 결과를 폐기 (연속 저장/문서 전환 race, 스펙 §2)
-  const readGenerationRef = useRef(0);
+  // 열기 세대 — 새 문서 열기만 올린다. 진행 중이던 이전 열기/재읽기 결과를 무효화.
+  // 재읽기와 분리하는 이유: 재읽기가 같은 카운터를 올리면 진행 중인 열기를 중단시킨다 (연속 저장/문서 전환 race, 스펙 §2)
+  const openGenerationRef = useRef(0);
+  // 재읽기 시퀀스 — 재읽기와 removed 이벤트가 올린다. 늦게 도착한 stale 재읽기를 무효화
+  const reloadSequenceRef = useRef(0);
 
   const openPath = useCallback(
     async ({ path }: { path: string }) => {
-      const generation = readGenerationRef.current + 1;
-      readGenerationRef.current = generation;
+      const generation = openGenerationRef.current + 1;
+      openGenerationRef.current = generation;
       let content: string;
       try {
         content = await readFile({ path });
       } catch (error) {
-        if (readGenerationRef.current === generation) {
+        if (openGenerationRef.current === generation) {
           setNotice({ kind: "read-error", message: String(error) });
         }
         return;
       }
-      if (readGenerationRef.current !== generation) {
+      if (openGenerationRef.current !== generation) {
         return;
       }
       // 읽기 성공 후에만 watch 교체 — 실패 시 이전 watch 유지 (스펙 §2)
       // watch 실패는 열람을 막지 않는다: 원래 경로를 식별자로 사용
       const watchedPath = await startWatching({ path }).catch(() => path);
-      if (readGenerationRef.current !== generation) {
+      if (openGenerationRef.current !== generation) {
         return;
       }
       openedPathRef.current = watchedPath;
       setOpenedDocument({ path: watchedPath, content });
       setNotice(null);
+      // 이전 문서의 재읽기가 아직 in-flight일 수 있다 — 새 문서를 덮지 못하게 무효화
+      reloadSequenceRef.current += 1;
     },
     [readFile, startWatching],
   );
@@ -102,11 +107,15 @@ function App({
     if (path === null) {
       return;
     }
-    const generation = readGenerationRef.current + 1;
-    readGenerationRef.current = generation;
+    const openGeneration = openGenerationRef.current;
+    const sequence = reloadSequenceRef.current + 1;
+    reloadSequenceRef.current = sequence;
     try {
       const content = await readFile({ path });
-      if (readGenerationRef.current !== generation) {
+      if (
+        openGenerationRef.current !== openGeneration ||
+        reloadSequenceRef.current !== sequence
+      ) {
         return;
       }
       // 동일성 단락: 내용이 같으면 문서 setState 생략 — 단, notice 해제는 항상
@@ -119,7 +128,10 @@ function App({
         return { ...current, content };
       });
     } catch (error) {
-      if (readGenerationRef.current === generation) {
+      if (
+        openGenerationRef.current === openGeneration &&
+        reloadSequenceRef.current === sequence
+      ) {
         setNotice({ kind: "read-error", message: String(error) });
       }
     }
@@ -131,6 +143,8 @@ function App({
         return; // 이전 watcher의 잔여 이벤트·다른 문서 이벤트 무시
       }
       if (payload.kind === "removed") {
+        // in-flight 재읽기가 늦게 resolve해 삭제 배너를 지우지 못하게 무효화
+        reloadSequenceRef.current += 1;
         setNotice({
           kind: "file-removed",
           message: "파일이 삭제되거나 이동되었습니다",
