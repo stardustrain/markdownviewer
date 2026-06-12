@@ -10,6 +10,10 @@ use tauri::{Emitter, Manager};
 
 struct WatcherState(Mutex<Option<Debouncer<RecommendedWatcher, RecommendedCache>>>);
 
+/// 웹뷰가 뜨기 전(콜드 스타트)에 도착한 파일 경로 버퍼.
+/// 읽을 때 비운다(drain) — 웹뷰 리로드 시 이전 파일 재전달·무한 증식 방지 (스펙 §2)
+struct OpenedFiles(Mutex<Vec<String>>);
+
 #[derive(Clone, Serialize)]
 struct FileWatchPayload {
     path: String,
@@ -78,13 +82,52 @@ fn start_watching(app: tauri::AppHandle, path: String) -> Result<String, String>
     Ok(emit_path)
 }
 
+#[tauri::command]
+fn opened_files(app: tauri::AppHandle) -> Vec<String> {
+    std::mem::take(&mut *app.state::<OpenedFiles>().0.lock().unwrap())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(WatcherState(Mutex::new(None)))
-        .invoke_handler(tauri::generate_handler![read_file, start_watching])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .manage(OpenedFiles(Mutex::new(Vec::new())))
+        .invoke_handler(tauri::generate_handler![
+            read_file,
+            start_watching,
+            opened_files
+        ])
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            // RunEvent는 #[non_exhaustive] — if let으로 Opened만 처리
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Opened { urls } = event {
+                // file:// URL → 경로 (to_file_path가 percent-decode — 한글/공백 OK).
+                // filter_map은 비파일(deep link) URL 방어 (스펙 §2)
+                let files: Vec<String> = urls
+                    .into_iter()
+                    .filter_map(|url| url.to_file_path().ok())
+                    .map(|path| path.to_string_lossy().into_owned())
+                    .collect();
+                if files.is_empty() {
+                    return;
+                }
+                app.state::<OpenedFiles>()
+                    .0
+                    .lock()
+                    .unwrap()
+                    .extend(files.clone());
+                // 실행 중인 경우 즉시 반영 — 콜드 스타트에선 웹뷰 로드 전이라 유실되므로
+                // 버퍼 + opened_files pull이 본선 (스펙 §2)
+                let _ = app.emit("opened", files);
+                // macOS가 앱은 자동 활성화하지만 최소화 창은 복구 안 함 — 방어적 복구
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.unminimize();
+                    let _ = window.set_focus();
+                }
+            }
+        });
 }
