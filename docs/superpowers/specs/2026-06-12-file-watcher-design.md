@@ -34,7 +34,7 @@
 | **경로 정체성** | `start_watching`이 **canonical 경로를 반환**, App이 그것을 `openedDocument.path`로 저장 | FSEvents가 경로를 canonicalize(`/tmp`→`/private/tmp`)하므로 원래 경로와 문자열 비교하면 이벤트가 전부 버려짐(교차검증에서 발견). canonical 경로 = 문서의 단일 식별자 |
 | watcher 수명 | `Mutex<Option<Debouncer<RecommendedWatcher, RecommendedCache>>>` managed state, 새 파일 열면 `Some(new)`로 교체 | Debouncer는 drop 가드(drop 시 정지, non-blocking). 교체가 곧 정지+시작 |
 | 호출 순서 | **`readFile` 성공 후에만 `startWatching`** | 실패 시에도 교체하면 A 문서를 보면서 B를 watch하는 버그(기존 문서 유지 정책과 충돌) |
-| 재읽기 race | 세대(generation) 카운터 — 문서 열기/재읽기마다 증가, 늦게 resolve된 이전 세대 읽기는 무시 | 연속 저장 시 읽기 #1이 #2보다 늦게 도착하면 stale 내용 렌더 방지 |
+| 재읽기 race | **2-카운터 모델** (구현 중 리뷰에서 단일 카운터의 결함 발견·수정): `openGenerationRef`는 열기만 증가 — 늦은 이전 열기/재읽기 무효화. `reloadSequenceRef`는 재읽기·removed 이벤트·열기 커밋이 증가 — stale 재읽기 무효화. 재읽기는 열기 세대를 건드리지 않는다 | 단일 공유 카운터는 이전 문서의 변경 이벤트(재읽기)가 진행 중인 새 문서 열기를 중단시키고(라이브 리로드 사망), stale 재읽기가 removed 배너를 지우는 버그가 있었음 — 둘 다 회귀 테스트로 고정 |
 | Shiki 비용 | 재읽은 내용이 기존과 같으면 **문서 setState만** 생략 (동일성 단락 — notice 해제는 항상 수행) | atomic save의 중복 이벤트 흡수 + 불필요한 동기 재하이라이팅 회피. notice까지 건너뛰면 삭제→동일 내용 재생성 시 배너가 안 사라짐. 추가 완화는 §5 |
 | 상태 모델 | `errorMessage: string` → **`notice: { kind: "read-error" \| "file-removed", message: string } \| null`** | "읽기 실패(문서 유지)"와 "파일 삭제됨(문서 유지)"의 전이를 구분해 테스트로 고정. 배너 UI는 동일 |
 | 권한 | 변경 없음 | Rust emit → JS listen은 기존 `core:default`(`core:event:allow-listen` 포함)로 충분(검증) |
