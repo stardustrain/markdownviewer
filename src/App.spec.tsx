@@ -157,6 +157,72 @@ describe("App", () => {
       ).toBeInTheDocument();
       expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     });
+
+    test("읽기가 완료되기 전에 다른 열기가 시작되면 첫 번째 읽기 결과를 무시합니다.", async () => {
+      const user = userEvent.setup();
+      const fakeDeps = createFakeDeps({
+        pickedPaths: ["/tmp/a.md", "/tmp/b.md"],
+        files: { "/tmp/a.md": "# 문서A", "/tmp/b.md": "# 문서B" },
+        deferReads: true,
+      });
+      render(<App {...fakeDeps.props} />);
+      await user.click(screen.getByRole("button", { name: /파일 열기/ }));
+      // pendingReads[0] = 문서A 읽기 (대기 중)
+
+      await user.click(screen.getByRole("button", { name: /파일 열기/ }));
+      // 두 번째 열기 시작 — generation bump
+      // pendingReads[1] = 문서B 읽기 (대기 중)
+
+      act(() => {
+        fakeDeps.settlePendingRead(1); // 문서B 먼저 도착
+      });
+      await screen.findByRole("heading", { name: "문서B" });
+
+      act(() => {
+        fakeDeps.settlePendingRead(0); // 문서A 늦게 도착 — 무시되어야 함
+      });
+      await act(async () => {});
+
+      expect(
+        screen.getByRole("heading", { name: "문서B" }),
+      ).toBeInTheDocument();
+      expect(
+        screen.queryByRole("heading", { name: "문서A" }),
+      ).not.toBeInTheDocument();
+    });
+
+    test("startWatching 완료 전에 다른 열기가 시작되면 첫 번째 watch 결과를 무시합니다.", async () => {
+      const user = userEvent.setup();
+      const fakeDeps = createFakeDeps({
+        pickedPaths: ["/tmp/a.md", "/tmp/b.md"],
+        files: { "/tmp/a.md": "# 문서A", "/tmp/b.md": "# 문서B" },
+        deferWatching: true,
+      });
+      render(<App {...fakeDeps.props} />);
+      await user.click(screen.getByRole("button", { name: /파일 열기/ }));
+      // pendingWatchings[0] = /tmp/a.md watch 대기 중 (읽기는 즉시 완료)
+
+      await user.click(screen.getByRole("button", { name: /파일 열기/ }));
+      // 두 번째 열기 시작 — generation bump
+      // pendingWatchings[1] = /tmp/b.md watch 대기 중
+
+      act(() => {
+        fakeDeps.settlePendingWatching(1, "/tmp/b.md"); // b 먼저 완료
+      });
+      await screen.findByRole("heading", { name: "문서B" });
+
+      act(() => {
+        fakeDeps.settlePendingWatching(0, "/tmp/a.md"); // a 늦게 도착 — 무시되어야 함
+      });
+      await act(async () => {});
+
+      expect(
+        screen.getByRole("heading", { name: "문서B" }),
+      ).toBeInTheDocument();
+      expect(
+        screen.queryByRole("heading", { name: "문서A" }),
+      ).not.toBeInTheDocument();
+    });
   });
 
   context("열린 파일이 변경(저장)된 경우", () => {
@@ -198,6 +264,46 @@ describe("App", () => {
       await act(async () => {});
 
       expect(fakeDeps.readPaths).toHaveLength(readsBefore);
+    });
+
+    test("연속 변경 시 늦게 도착한 이전 읽기가 새 내용을 덮지 않습니다.", async () => {
+      const user = userEvent.setup();
+      const fakeDeps = createFakeDeps({
+        pickedPaths: ["/tmp/note.md"],
+        files: { "/tmp/note.md": "# 버전1" },
+        deferReads: true,
+      });
+      render(<App {...fakeDeps.props} />);
+      await user.click(screen.getByRole("button", { name: /파일 열기/ }));
+      act(() => {
+        fakeDeps.settlePendingRead(0); // 최초 읽기(버전1 스냅샷) 완료
+      });
+      await screen.findByRole("heading", { name: "버전1" });
+
+      fakeDeps.setFileContent("/tmp/note.md", "# 버전2");
+      act(() => {
+        fakeDeps.emitFileWatch({ path: "/tmp/note.md", kind: "changed" });
+      }); // pendingReads[1] = 버전2 스냅샷 (느린 읽기)
+      fakeDeps.setFileContent("/tmp/note.md", "# 버전3");
+      act(() => {
+        fakeDeps.emitFileWatch({ path: "/tmp/note.md", kind: "changed" });
+      }); // pendingReads[2] = 버전3 스냅샷
+
+      act(() => {
+        fakeDeps.settlePendingRead(2); // 최신 읽기가 먼저 도착
+      });
+      await screen.findByRole("heading", { name: "버전3" });
+      act(() => {
+        fakeDeps.settlePendingRead(1); // 이전(stale) 읽기가 늦게 도착
+      });
+      await act(async () => {});
+
+      expect(
+        screen.getByRole("heading", { name: "버전3" }),
+      ).toBeInTheDocument();
+      expect(
+        screen.queryByRole("heading", { name: "버전2" }),
+      ).not.toBeInTheDocument();
     });
 
     test("재읽기에 실패하면 read-error 배너를 띄우고 내용을 유지합니다.", async () => {
@@ -321,6 +427,35 @@ describe("App", () => {
 
       expect(fakeDeps.watchedPaths).toHaveLength(0);
     });
+
+    test("이벤트 필터는 startWatching이 반환한 canonical 경로를 기준으로 합니다.", async () => {
+      const user = userEvent.setup();
+      const fakeDeps = createFakeDeps({
+        pickedPaths: ["/tmp/note.md"],
+        files: { "/tmp/note.md": "# 버전1" },
+        canonicalPrefix: "/private",
+      });
+      render(<App {...fakeDeps.props} />);
+      await user.click(screen.getByRole("button", { name: /파일 열기/ }));
+      await screen.findByRole("heading", { name: "버전1" });
+      const readsBefore = fakeDeps.readPaths.length;
+
+      // 원래 경로로 온 이벤트는 무시, canonical 경로로 온 이벤트만 반영
+      act(() => {
+        fakeDeps.emitFileWatch({ path: "/tmp/note.md", kind: "changed" });
+      });
+      await act(async () => {});
+      expect(fakeDeps.readPaths).toHaveLength(readsBefore);
+
+      fakeDeps.setFileContent("/private/tmp/note.md", "# 버전2");
+      act(() => {
+        fakeDeps.emitFileWatch({ path: "/private/tmp/note.md", kind: "changed" });
+      });
+
+      expect(
+        await screen.findByRole("heading", { name: "버전2" }),
+      ).toBeInTheDocument();
+    });
   });
 });
 
@@ -331,6 +466,8 @@ type CreateFakeDepsParams = {
   files?: Record<string, string>;
   /** true면 readFile이 즉시 settle하지 않고 pendingReads에 쌓인다 (호출 시점 내용 스냅샷) */
   deferReads?: boolean;
+  /** true면 startWatching이 즉시 resolve하지 않고 pendingWatchings에 쌓인다 */
+  deferWatching?: boolean;
   /** fake startWatching이 반환할 canonical 경로의 접두사 (기본 "" = 경로 그대로) */
   canonicalPrefix?: string;
 };
@@ -339,12 +476,14 @@ function createFakeDeps({
   pickedPaths = [],
   files = {},
   deferReads = false,
+  deferWatching = false,
   canonicalPrefix = "",
 }: CreateFakeDepsParams) {
   const remainingPicks = [...pickedPaths];
   const readPaths: string[] = [];
   const watchedPaths: string[] = [];
   const pendingReads: Array<{ settle: () => void }> = [];
+  const pendingWatchings: Array<{ settle: (path: string) => void }> = [];
   const fakeSubscriber = createFakeDragDropSubscriber();
   let menuOpenHandler: (() => void) | null = null;
   let fileWatchHandler: ((payload: FileWatchPayload) => void) | null = null;
@@ -378,7 +517,16 @@ function createFakeDeps({
     },
     startWatching: ({ path }: { path: string }) => {
       watchedPaths.push(path);
-      return Promise.resolve(`${canonicalPrefix}${path}`);
+      if (!deferWatching) {
+        return Promise.resolve(`${canonicalPrefix}${path}`);
+      }
+      return new Promise<string>((resolve) => {
+        pendingWatchings.push({
+          settle: (canonicalPath: string) => {
+            resolve(canonicalPath);
+          },
+        });
+      });
     },
     subscribeFileWatch: ({
       onEvent,
@@ -410,6 +558,9 @@ function createFakeDeps({
     },
     settlePendingRead: (index: number) => {
       pendingReads[index]?.settle();
+    },
+    settlePendingWatching: (index: number, canonicalPath: string) => {
+      pendingWatchings[index]?.settle(canonicalPath);
     },
   };
 }
