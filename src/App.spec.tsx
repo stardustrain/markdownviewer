@@ -5,6 +5,7 @@ import {
   type DragDropPayload,
   type DragDropSubscriber,
 } from "./hooks/useFileDrop";
+import { type FileWatchPayload } from "./hooks/useFileWatch";
 
 const context = describe;
 
@@ -157,6 +158,118 @@ describe("App", () => {
       expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     });
   });
+
+  context("열린 파일이 변경(저장)된 경우", () => {
+    test("자동으로 재읽기해 새 내용을 렌더합니다.", async () => {
+      const user = userEvent.setup();
+      const fakeDeps = createFakeDeps({
+        pickedPaths: ["/tmp/note.md"],
+        files: { "/tmp/note.md": "# 버전1" },
+      });
+      render(<App {...fakeDeps.props} />);
+      await user.click(screen.getByRole("button", { name: /파일 열기/ }));
+      await screen.findByRole("heading", { name: "버전1" });
+
+      fakeDeps.setFileContent("/tmp/note.md", "# 버전2");
+      act(() => {
+        fakeDeps.emitFileWatch({ path: "/tmp/note.md", kind: "changed" });
+      });
+
+      expect(
+        await screen.findByRole("heading", { name: "버전2" }),
+      ).toBeInTheDocument();
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    });
+
+    test("다른 경로의 이벤트는 무시합니다.", async () => {
+      const user = userEvent.setup();
+      const fakeDeps = createFakeDeps({
+        pickedPaths: ["/tmp/note.md"],
+        files: { "/tmp/note.md": "# 버전1" },
+      });
+      render(<App {...fakeDeps.props} />);
+      await user.click(screen.getByRole("button", { name: /파일 열기/ }));
+      await screen.findByRole("heading", { name: "버전1" });
+      const readsBefore = fakeDeps.readPaths.length;
+
+      act(() => {
+        fakeDeps.emitFileWatch({ path: "/tmp/other.md", kind: "changed" });
+      });
+      await act(async () => {});
+
+      expect(fakeDeps.readPaths).toHaveLength(readsBefore);
+    });
+
+    test("재읽기에 실패하면 read-error 배너를 띄우고 내용을 유지합니다.", async () => {
+      const user = userEvent.setup();
+      const fakeDeps = createFakeDeps({
+        pickedPaths: ["/tmp/note.md"],
+        files: { "/tmp/note.md": "# 버전1" },
+      });
+      render(<App {...fakeDeps.props} />);
+      await user.click(screen.getByRole("button", { name: /파일 열기/ }));
+      await screen.findByRole("heading", { name: "버전1" });
+
+      fakeDeps.removeFile("/tmp/note.md");
+      act(() => {
+        fakeDeps.emitFileWatch({ path: "/tmp/note.md", kind: "changed" });
+      });
+
+      expect(await screen.findByRole("alert")).toHaveTextContent(/읽기 실패/);
+      expect(
+        screen.getByRole("heading", { name: "버전1" }),
+      ).toBeInTheDocument();
+    });
+  });
+
+  context("열린 파일이 삭제/이동된 경우", () => {
+    test("내용을 유지하고 삭제 배너를 띄웁니다.", async () => {
+      const user = userEvent.setup();
+      const fakeDeps = createFakeDeps({
+        pickedPaths: ["/tmp/note.md"],
+        files: { "/tmp/note.md": "# 버전1" },
+      });
+      render(<App {...fakeDeps.props} />);
+      await user.click(screen.getByRole("button", { name: /파일 열기/ }));
+      await screen.findByRole("heading", { name: "버전1" });
+
+      act(() => {
+        fakeDeps.emitFileWatch({ path: "/tmp/note.md", kind: "removed" });
+      });
+
+      expect(await screen.findByRole("alert")).toHaveTextContent(/삭제/);
+      expect(
+        screen.getByRole("heading", { name: "버전1" }),
+      ).toBeInTheDocument();
+    });
+  });
+
+  context("파일 watch 시작 조건", () => {
+    test("열기 성공 시 startWatching을 호출합니다.", async () => {
+      const user = userEvent.setup();
+      const fakeDeps = createFakeDeps({
+        pickedPaths: ["/tmp/note.md"],
+        files: { "/tmp/note.md": "# 제목" },
+      });
+      render(<App {...fakeDeps.props} />);
+
+      await user.click(screen.getByRole("button", { name: /파일 열기/ }));
+      await screen.findByRole("heading", { name: "제목" });
+
+      expect(fakeDeps.watchedPaths).toEqual(["/tmp/note.md"]);
+    });
+
+    test("읽기에 실패하면 startWatching을 호출하지 않습니다.", async () => {
+      const user = userEvent.setup();
+      const fakeDeps = createFakeDeps({ pickedPaths: ["/tmp/broken.md"] });
+      render(<App {...fakeDeps.props} />);
+
+      await user.click(screen.getByRole("button", { name: /파일 열기/ }));
+      await screen.findByRole("alert");
+
+      expect(fakeDeps.watchedPaths).toHaveLength(0);
+    });
+  });
 });
 
 type CreateFakeDepsParams = {
@@ -164,34 +277,87 @@ type CreateFakeDepsParams = {
   pickedPaths?: Array<string | null>;
   /** readFile이 성공할 경로 → 내용. 없는 경로는 읽기 실패로 reject */
   files?: Record<string, string>;
+  /** true면 readFile이 즉시 settle하지 않고 pendingReads에 쌓인다 (호출 시점 내용 스냅샷) */
+  deferReads?: boolean;
+  /** fake startWatching이 반환할 canonical 경로의 접두사 (기본 "" = 경로 그대로) */
+  canonicalPrefix?: string;
 };
 
-function createFakeDeps({ pickedPaths = [], files = {} }: CreateFakeDepsParams) {
+function createFakeDeps({
+  pickedPaths = [],
+  files = {},
+  deferReads = false,
+  canonicalPrefix = "",
+}: CreateFakeDepsParams) {
   const remainingPicks = [...pickedPaths];
   const readPaths: string[] = [];
+  const watchedPaths: string[] = [];
+  const pendingReads: Array<{ settle: () => void }> = [];
   const fakeSubscriber = createFakeDragDropSubscriber();
   let menuOpenHandler: (() => void) | null = null;
+  let fileWatchHandler: ((payload: FileWatchPayload) => void) | null = null;
   const props = {
     pickFile: () => Promise.resolve(remainingPicks.shift() ?? null),
     readFile: ({ path }: { path: string }) => {
       readPaths.push(path);
-      const content = files[path];
-      if (content === undefined) {
-        return Promise.reject(new Error(`읽기 실패: ${path}`));
+      // 호출 시점 스냅샷 — 실제 디스크 읽기 의미론(늦게 resolve돼도 내용은 읽은 시점 것)
+      const snapshot = files[path];
+      if (!deferReads) {
+        if (snapshot === undefined) {
+          return Promise.reject(new Error(`읽기 실패: ${path}`));
+        }
+        return Promise.resolve(snapshot);
       }
-      return Promise.resolve(content);
+      return new Promise<string>((resolve, reject) => {
+        pendingReads.push({
+          settle: () => {
+            if (snapshot === undefined) {
+              reject(new Error(`읽기 실패: ${path}`));
+              return;
+            }
+            resolve(snapshot);
+          },
+        });
+      });
     },
     subscribeDragDrop: fakeSubscriber.subscribe,
     installMenu: ({ onOpen }: { onOpen: () => void }) => {
       menuOpenHandler = onOpen;
     },
+    startWatching: ({ path }: { path: string }) => {
+      watchedPaths.push(path);
+      return Promise.resolve(`${canonicalPrefix}${path}`);
+    },
+    subscribeFileWatch: ({
+      onEvent,
+    }: {
+      onEvent: (payload: FileWatchPayload) => void;
+    }) => {
+      fileWatchHandler = onEvent;
+      return Promise.resolve(() => {
+        fileWatchHandler = null;
+      });
+    },
   };
   return {
     props,
     readPaths,
+    watchedPaths,
     emitDragDrop: fakeSubscriber.emit,
     triggerMenuOpen: () => {
       menuOpenHandler?.();
+    },
+    emitFileWatch: (payload: FileWatchPayload) => {
+      fileWatchHandler?.(payload);
+    },
+    setFileContent: (path: string, content: string) => {
+      files[path] = content;
+    },
+    removeFile: (path: string) => {
+      delete files[path];
+    },
+    settlePendingRead: (index: number) => {
+      pendingReads[index]?.settle();
     },
   };
 }

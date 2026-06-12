@@ -1,9 +1,14 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { MarkdownView } from "./components/MarkdownView";
 import { type DragDropSubscriber, useFileDrop } from "./hooks/useFileDrop";
+import {
+  type FileWatchPayload,
+  type FileWatchSubscriber,
+  useFileWatch,
+} from "./hooks/useFileWatch";
 import { installAppMenu } from "./lib/installAppMenu";
 import { isMarkdownPath, MARKDOWN_EXTENSIONS } from "./lib/isMarkdownPath";
 import "./App.css";
@@ -11,6 +16,11 @@ import "./App.css";
 type OpenedDocument = {
   path: string;
   content: string;
+};
+
+type AppNotice = {
+  kind: "read-error" | "file-removed";
+  message: string;
 };
 
 type AppProps = {
@@ -30,6 +40,14 @@ type AppProps = {
    * @default installAppMenu 래퍼(installDefaultAppMenu)
    */
   installMenu?: (args: { onOpen: () => void }) => void;
+  /** 파일 watch 시작 — canonical 경로를 반환. 실패해도 열람은 진행(자동 갱신만 비활성)
+   * @default invoke("start_watching")
+   */
+  startWatching?: (args: { path: string }) => Promise<string>;
+  /** "file-watch" 이벤트 구독 — useFileWatch에 전달
+   * @default Tauri listen (useFileWatch의 기본값)
+   */
+  subscribeFileWatch?: FileWatchSubscriber;
 };
 
 function App({
@@ -37,24 +55,78 @@ function App({
   readFile = readMarkdownFile,
   subscribeDragDrop,
   installMenu = installDefaultAppMenu,
+  startWatching = startWatchingFile,
+  subscribeFileWatch,
 }: AppProps) {
   const [openedDocument, setOpenedDocument] = useState<OpenedDocument | null>(
     null,
   );
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [notice, setNotice] = useState<AppNotice | null>(null);
+  // 문서의 단일 식별자(canonical 경로) — watcher 이벤트 필터용.
+  // stable 콜백(handleFileWatchEvent)에서 stale 클로저 없이 읽기 위해 ref
+  const openedPathRef = useRef<string | null>(null);
 
   const openPath = useCallback(
     async ({ path }: { path: string }) => {
+      let content: string;
       try {
-        const content = await readFile({ path });
-        setOpenedDocument({ path, content });
-        setErrorMessage(null);
+        content = await readFile({ path });
       } catch (error) {
-        setErrorMessage(String(error));
+        setNotice({ kind: "read-error", message: String(error) });
+        return;
       }
+      // 읽기 성공 후에만 watch 교체 — 실패 시 이전 watch 유지 (스펙 §2)
+      // watch 실패는 열람을 막지 않는다: 원래 경로를 식별자로 사용
+      const watchedPath = await startWatching({ path }).catch(() => path);
+      openedPathRef.current = watchedPath;
+      setOpenedDocument({ path: watchedPath, content });
+      setNotice(null);
     },
-    [readFile],
+    [readFile, startWatching],
   );
+
+  const reloadOpenedDocument = useCallback(async () => {
+    const path = openedPathRef.current;
+    if (path === null) {
+      return;
+    }
+    try {
+      const content = await readFile({ path });
+      // 동일성 단락: 내용이 같으면 문서 setState 생략 — 단, notice 해제는 항상
+      // (삭제 → 같은 내용 재생성 시 배너가 남는 것 방지, 스펙 §3.1)
+      setNotice(null);
+      setOpenedDocument((current) => {
+        if (current === null || current.content === content) {
+          return current;
+        }
+        return { ...current, content };
+      });
+    } catch (error) {
+      setNotice({ kind: "read-error", message: String(error) });
+    }
+  }, [readFile]);
+
+  const handleFileWatchEvent = useCallback(
+    (payload: FileWatchPayload) => {
+      if (payload.path !== openedPathRef.current) {
+        return; // 이전 watcher의 잔여 이벤트·다른 문서 이벤트 무시
+      }
+      if (payload.kind === "removed") {
+        setNotice({
+          kind: "file-removed",
+          message: "파일이 삭제되거나 이동되었습니다",
+        });
+        return;
+      }
+      void reloadOpenedDocument();
+    },
+    [reloadOpenedDocument],
+  );
+
+  useFileWatch({
+    onEvent: handleFileWatchEvent,
+    subscribe: subscribeFileWatch,
+  });
 
   const openViaDialog = useCallback(async () => {
     const path = await pickFile();
@@ -90,9 +162,9 @@ function App({
 
   return (
     <main className={isDragging ? "app dragging" : "app"}>
-      {errorMessage !== null && (
+      {notice !== null && (
         <div role="alert" className="error-banner">
-          {errorMessage}
+          {notice.message}
         </div>
       )}
       {openedDocument === null ? (
@@ -125,6 +197,10 @@ function pickMarkdownFile(): Promise<string | null> {
 function readMarkdownFile({ path }: { path: string }): Promise<string> {
   // invoke의 기본 반환은 Promise<unknown> — 제네릭으로 응답 타입을 지정한다(type assertion 아님)
   return invoke<string>("read_file", { path });
+}
+
+function startWatchingFile({ path }: { path: string }): Promise<string> {
+  return invoke<string>("start_watching", { path });
 }
 
 function handleLinkClick({ url }: { url: string }) {
