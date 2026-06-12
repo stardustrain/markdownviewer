@@ -11,7 +11,10 @@
     "tauri": "tauri",
     "test": "vitest run",
     "test:watch": "vitest",
-    "coverage": "vitest run --coverage"
+    "coverage": "vitest run --coverage",
+    "lint": "oxlint",
+    "lint:fix": "oxlint --fix",
+    "prepare": "husky"
   },
   "dependencies": {
     "@shikijs/langs": "^4.2.0",
@@ -39,7 +42,11 @@
     "@types/react-dom": "^19.1.6",
     "@vitejs/plugin-react": "^6.0.0",
     "@vitest/coverage-v8": "4.1.8",
+    "husky": "^9.1.7",
     "jsdom": "^29.1.1",
+    "lint-staged": "^17.0.7",
+    "oxfmt": "^0.54.0",
+    "oxlint": "^1.69.0",
     "typescript": "~5.8.3",
     "vite": "^8.0.0",
     "vitest": "4.1.8"
@@ -48,5 +55,8 @@
     "onlyBuiltDependencies": [
       "esbuild"
     ]
+  },
+  "lint-staged": {
+    "*.{js,jsx,ts,tsx,mjs,cjs}": ["oxfmt", "oxlint --fix"]
   }
 }

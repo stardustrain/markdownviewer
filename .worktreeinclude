@@ -1,0 +1,14 @@
+# Files to copy between worktrees (must also be gitignored)
+# Used by: wt step copy-ignored
+#
+# Only files matching BOTH .gitignore AND this file are copied.
+# Without this file, ALL gitignored files would be copied (including build artifacts).
+
+# Environment config
+.env
+.env.*
+
+# Claude config local override
+.claude/config.local.json
+.serena/cache
+docs/plans/

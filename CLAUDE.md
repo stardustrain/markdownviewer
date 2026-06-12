@@ -65,3 +65,7 @@ These guidelines are working if: fewer unnecessary changes in diffs, fewer rewri
 ### Test code style (핵심 규칙)
 
 > 상세 규칙: skill "test-code-style" 참조
+
+## Responsive rules
+
+1. 에이전트 응답은 한국어로 작성 (영어가 필요하면 한국어와 함께 제공)
