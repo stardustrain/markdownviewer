@@ -1,4 +1,4 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import App from "./App";
 import {
@@ -238,6 +238,58 @@ describe("App", () => {
       });
 
       expect(await screen.findByRole("alert")).toHaveTextContent(/삭제/);
+      expect(
+        screen.getByRole("heading", { name: "버전1" }),
+      ).toBeInTheDocument();
+    });
+
+    test("삭제 후 다른 내용으로 재생성되면 배너를 해제하고 새 내용을 렌더합니다.", async () => {
+      const user = userEvent.setup();
+      const fakeDeps = createFakeDeps({
+        pickedPaths: ["/tmp/note.md"],
+        files: { "/tmp/note.md": "# 버전1" },
+      });
+      render(<App {...fakeDeps.props} />);
+      await user.click(screen.getByRole("button", { name: /파일 열기/ }));
+      await screen.findByRole("heading", { name: "버전1" });
+      act(() => {
+        fakeDeps.emitFileWatch({ path: "/tmp/note.md", kind: "removed" });
+      });
+      await screen.findByRole("alert");
+
+      fakeDeps.setFileContent("/tmp/note.md", "# 버전2");
+      act(() => {
+        fakeDeps.emitFileWatch({ path: "/tmp/note.md", kind: "changed" });
+      });
+
+      expect(
+        await screen.findByRole("heading", { name: "버전2" }),
+      ).toBeInTheDocument();
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    });
+
+    test("삭제 후 같은 내용으로 재생성되어도 배너를 해제합니다.", async () => {
+      const user = userEvent.setup();
+      const fakeDeps = createFakeDeps({
+        pickedPaths: ["/tmp/note.md"],
+        files: { "/tmp/note.md": "# 버전1" },
+      });
+      render(<App {...fakeDeps.props} />);
+      await user.click(screen.getByRole("button", { name: /파일 열기/ }));
+      await screen.findByRole("heading", { name: "버전1" });
+      act(() => {
+        fakeDeps.emitFileWatch({ path: "/tmp/note.md", kind: "removed" });
+      });
+      await screen.findByRole("alert");
+
+      // 내용은 그대로 — 동일성 단락이 notice 해제를 막으면 안 된다 (스펙 §2)
+      act(() => {
+        fakeDeps.emitFileWatch({ path: "/tmp/note.md", kind: "changed" });
+      });
+
+      await waitFor(() => {
+        expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+      });
       expect(
         screen.getByRole("heading", { name: "버전1" }),
       ).toBeInTheDocument();
