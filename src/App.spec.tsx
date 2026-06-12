@@ -543,6 +543,73 @@ describe("App", () => {
     });
   });
 
+  context("OS가 파일 열기를 전달한 경우", () => {
+    test("콜드 스타트 버퍼의 마지막 파일을 엽니다.", async () => {
+      const fakeDeps = createFakeDeps({
+        files: { "/tmp/b.md": "# 마지막 파일" },
+        osOpenedPaths: ["/tmp/a.md", "/tmp/b.md"],
+      });
+      render(<App {...fakeDeps.props} />);
+
+      expect(
+        await screen.findByRole("heading", { name: "마지막 파일" }),
+      ).toBeInTheDocument();
+      expect(fakeDeps.readPaths).toEqual(["/tmp/b.md"]);
+    });
+
+    test("콜드 스타트 버퍼가 비어 있으면 아무것도 하지 않습니다.", async () => {
+      const fakeDeps = createFakeDeps({});
+      render(<App {...fakeDeps.props} />);
+      await act(async () => {});
+
+      expect(fakeDeps.readPaths).toHaveLength(0);
+      expect(
+        screen.getByRole("button", { name: /파일 열기/ }),
+      ).toBeInTheDocument();
+    });
+
+    test("실행 중 전달되면 현재 문서를 교체합니다.", async () => {
+      const user = userEvent.setup();
+      const fakeDeps = createFakeDeps({
+        pickedPaths: ["/tmp/old.md"],
+        files: { "/tmp/old.md": "# 이전 문서", "/tmp/new.md": "# 새 문서" },
+      });
+      render(<App {...fakeDeps.props} />);
+      await user.click(screen.getByRole("button", { name: /파일 열기/ }));
+      await screen.findByRole("heading", { name: "이전 문서" });
+
+      act(() => {
+        fakeDeps.emitOpened(["/tmp/new.md"]);
+      });
+
+      expect(
+        await screen.findByRole("heading", { name: "새 문서" }),
+      ).toBeInTheDocument();
+      expect(
+        screen.queryByRole("heading", { name: "이전 문서" }),
+      ).not.toBeInTheDocument();
+    });
+
+    test("pull과 emit으로 같은 파일이 중복 전달되어도 최종 상태는 같습니다.", async () => {
+      const fakeDeps = createFakeDeps({
+        files: { "/tmp/a.md": "# 같은 문서" },
+        osOpenedPaths: ["/tmp/a.md"],
+      });
+      render(<App {...fakeDeps.props} />);
+      await screen.findByRole("heading", { name: "같은 문서" });
+
+      act(() => {
+        fakeDeps.emitOpened(["/tmp/a.md"]);
+      });
+      await act(async () => {});
+
+      expect(
+        screen.getByRole("heading", { name: "같은 문서" }),
+      ).toBeInTheDocument();
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    });
+  });
+
   context("파일 watch 시작 조건", () => {
     test("watch가 실패해도 열람은 진행되고, 원래 경로로 오는 이벤트를 인식합니다.", async () => {
       const user = userEvent.setup();
@@ -644,6 +711,8 @@ type CreateFakeDepsParams = {
   failWatching?: boolean;
   /** fake startWatching이 반환할 canonical 경로의 접두사 (기본 "" = 경로 그대로) */
   canonicalPrefix?: string;
+  /** 콜드 스타트 버퍼 — fake fetchOpenedFiles가 한 번 읽고 비운다(drain 의미론) */
+  osOpenedPaths?: string[];
 };
 
 function createFakeDeps({
@@ -653,6 +722,7 @@ function createFakeDeps({
   deferWatching = false,
   failWatching = false,
   canonicalPrefix = "",
+  osOpenedPaths = [],
 }: CreateFakeDepsParams) {
   const remainingPicks = [...pickedPaths];
   const readPaths: string[] = [];
@@ -662,6 +732,8 @@ function createFakeDeps({
   const fakeSubscriber = createFakeDragDropSubscriber();
   let menuOpenHandler: (() => void) | null = null;
   let fileWatchHandler: ((payload: FileWatchPayload) => void) | null = null;
+  const remainingOsOpened = [...osOpenedPaths];
+  let openedHandler: ((args: { paths: string[] }) => void) | null = null;
   const props = {
     pickFile: () => Promise.resolve(remainingPicks.shift() ?? null),
     readFile: ({ path }: { path: string }) => {
@@ -716,6 +788,21 @@ function createFakeDeps({
         fileWatchHandler = null;
       });
     },
+    fetchOpenedFiles: () => {
+      const drained = [...remainingOsOpened];
+      remainingOsOpened.length = 0;
+      return Promise.resolve(drained);
+    },
+    subscribeOpened: ({
+      onOpen,
+    }: {
+      onOpen: (args: { paths: string[] }) => void;
+    }) => {
+      openedHandler = onOpen;
+      return Promise.resolve(() => {
+        openedHandler = null;
+      });
+    },
   };
   return {
     props,
@@ -727,6 +814,9 @@ function createFakeDeps({
     },
     emitFileWatch: (payload: FileWatchPayload) => {
       fileWatchHandler?.(payload);
+    },
+    emitOpened: (paths: string[]) => {
+      openedHandler?.({ paths });
     },
     setFileContent: ({ path, content }: { path: string; content: string }) => {
       files[path] = content;

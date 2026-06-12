@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -48,6 +49,16 @@ type AppProps = {
    * @default Tauri listen (useFileWatch의 기본값)
    */
   subscribeFileWatch?: FileWatchSubscriber;
+  /** 콜드 스타트에 OS가 전달한 파일 경로 버퍼를 1회 pull (Rust가 drain)
+   * @default invoke("opened_files")
+   */
+  fetchOpenedFiles?: () => Promise<string[]>;
+  /** 실행 중 OS 파일 열기("opened" 이벤트) 구독
+   * @default Tauri listen("opened")
+   */
+  subscribeOpened?: (args: {
+    onOpen: (args: { paths: string[] }) => void;
+  }) => Promise<() => void>;
 };
 
 function App({
@@ -57,6 +68,8 @@ function App({
   installMenu = installDefaultAppMenu,
   startWatching = startWatchingFile,
   subscribeFileWatch,
+  fetchOpenedFiles = fetchOpenedFilesFromOS,
+  subscribeOpened = subscribeToOpenedFiles,
 }: AppProps) {
   const [openedDocument, setOpenedDocument] = useState<OpenedDocument | null>(
     null,
@@ -161,6 +174,36 @@ function App({
     subscribe: subscribeFileWatch,
   });
 
+  // 단일 문서 정책: 여러 파일이 와도 마지막 것만 연다 (스펙 §2)
+  const openLastOf = useCallback(
+    ({ paths }: { paths: string[] }) => {
+      const path = paths.at(-1);
+      if (path === undefined) {
+        return;
+      }
+      void openPath({ path });
+    },
+    [openPath],
+  );
+
+  // 콜드 스타트: Opened가 웹뷰 로드 전에 발생하므로 버퍼를 1회 pull (스펙 §3.1)
+  // Rust가 drain하므로(StrictMode 이중 실행 시 두 번째 pull은 빈 배열) 중복 열기 없음
+  useEffect(() => {
+    void fetchOpenedFiles().then((paths) => {
+      openLastOf({ paths });
+    });
+  }, [fetchOpenedFiles, openLastOf]);
+
+  // 실행 중: "opened" 이벤트 구독 (cleanup 패턴은 useFileWatch/useFileDrop과 동일)
+  useEffect(() => {
+    const unlistenPromise = subscribeOpened({ onOpen: openLastOf });
+    return () => {
+      unlistenPromise.then((unlisten) => {
+        unlisten();
+      });
+    };
+  }, [subscribeOpened, openLastOf]);
+
   const openViaDialog = useCallback(async () => {
     const path = await pickFile();
     if (path === null) {
@@ -234,6 +277,20 @@ function readMarkdownFile({ path }: { path: string }): Promise<string> {
 
 function startWatchingFile({ path }: { path: string }): Promise<string> {
   return invoke<string>("start_watching", { path });
+}
+
+function fetchOpenedFilesFromOS(): Promise<string[]> {
+  return invoke<string[]>("opened_files");
+}
+
+function subscribeToOpenedFiles({
+  onOpen,
+}: {
+  onOpen: (args: { paths: string[] }) => void;
+}): Promise<() => void> {
+  return listen<string[]>("opened", (event) => {
+    onOpen({ paths: event.payload });
+  });
 }
 
 function handleLinkClick({ url }: { url: string }) {
