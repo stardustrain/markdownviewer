@@ -191,6 +191,39 @@ describe("App", () => {
       ).not.toBeInTheDocument();
     });
 
+    test("늦게 실패한 이전 열기가 새 문서를 덮지 않습니다.", async () => {
+      const user = userEvent.setup();
+      const fakeDeps = createFakeDeps({
+        pickedPaths: ["/tmp/broken.md", "/tmp/good.md"],
+        files: { "/tmp/good.md": "# 정상 문서" },
+        deferReads: true,
+      });
+      render(<App {...fakeDeps.props} />);
+
+      // 첫 번째 열기: /tmp/broken.md — 읽기 대기 중 (pending[0], 나중에 실패)
+      await user.click(screen.getByRole("button", { name: /파일 열기/ }));
+
+      // 두 번째 열기: /tmp/good.md — 읽기 대기 중 (pending[1])
+      await user.click(screen.getByRole("button", { name: /파일 열기/ }));
+
+      // good.md 먼저 resolve → 정상 문서 렌더
+      act(() => {
+        fakeDeps.settlePendingRead(1);
+      });
+      await screen.findByRole("heading", { name: "정상 문서" });
+
+      // broken.md 늦게 reject — stale guard가 notice를 억제해야 한다
+      act(() => {
+        fakeDeps.settlePendingRead(0);
+      });
+      await act(async () => {});
+
+      expect(
+        screen.getByRole("heading", { name: "정상 문서" }),
+      ).toBeInTheDocument();
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    });
+
     test("startWatching 완료 전에 다른 열기가 시작되면 첫 번째 watch 결과를 무시합니다.", async () => {
       const user = userEvent.setup();
       const fakeDeps = createFakeDeps({
@@ -306,6 +339,52 @@ describe("App", () => {
       ).not.toBeInTheDocument();
     });
 
+    test("늦게 실패한 이전 재읽기가 최신 문서를 덮지 않습니다.", async () => {
+      const user = userEvent.setup();
+      const fakeDeps = createFakeDeps({
+        pickedPaths: ["/tmp/note.md"],
+        files: { "/tmp/note.md": "# 버전1" },
+        deferReads: true,
+      });
+      render(<App {...fakeDeps.props} />);
+      await user.click(screen.getByRole("button", { name: /파일 열기/ }));
+      // pending[0] = 최초 열기 읽기
+      act(() => {
+        fakeDeps.settlePendingRead(0);
+      });
+      await screen.findByRole("heading", { name: "버전1" });
+
+      // 첫 번째 changed: note.md를 삭제 → pending[1] 은 나중에 reject
+      fakeDeps.removeFile("/tmp/note.md");
+      act(() => {
+        fakeDeps.emitFileWatch({ path: "/tmp/note.md", kind: "changed" });
+      });
+
+      // 두 번째 changed: 새 내용으로 복구 → pending[2] 은 나중에 resolve
+      fakeDeps.setFileContent("/tmp/note.md", "# 버전2");
+      act(() => {
+        fakeDeps.emitFileWatch({ path: "/tmp/note.md", kind: "changed" });
+      });
+
+      // 최신 재읽기(pending[2]) 먼저 resolve
+      act(() => {
+        fakeDeps.settlePendingRead(2);
+      });
+      await screen.findByRole("heading", { name: "버전2" });
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+
+      // 이전 재읽기(pending[1]) 늦게 reject — stale guard가 notice를 억제해야 한다
+      act(() => {
+        fakeDeps.settlePendingRead(1);
+      });
+      await act(async () => {});
+
+      expect(
+        screen.getByRole("heading", { name: "버전2" }),
+      ).toBeInTheDocument();
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    });
+
     test("재읽기에 실패하면 read-error 배너를 띄우고 내용을 유지합니다.", async () => {
       const user = userEvent.setup();
       const fakeDeps = createFakeDeps({
@@ -403,6 +482,34 @@ describe("App", () => {
   });
 
   context("파일 watch 시작 조건", () => {
+    test("watch가 실패해도 열람은 진행되고, 원래 경로로 오는 이벤트를 인식합니다.", async () => {
+      const user = userEvent.setup();
+      const fakeDeps = createFakeDeps({
+        pickedPaths: ["/tmp/note.md"],
+        files: { "/tmp/note.md": "# 제목" },
+        failWatching: true,
+      });
+      render(<App {...fakeDeps.props} />);
+
+      await user.click(screen.getByRole("button", { name: /파일 열기/ }));
+
+      // watch 실패에도 불구하고 문서가 열려야 한다
+      expect(
+        await screen.findByRole("heading", { name: "제목" }),
+      ).toBeInTheDocument();
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+
+      // fallback으로 원래 경로가 식별자 — changed 이벤트가 반영되어야 한다
+      fakeDeps.setFileContent("/tmp/note.md", "# 수정됨");
+      act(() => {
+        fakeDeps.emitFileWatch({ path: "/tmp/note.md", kind: "changed" });
+      });
+
+      expect(
+        await screen.findByRole("heading", { name: "수정됨" }),
+      ).toBeInTheDocument();
+    });
+
     test("열기 성공 시 startWatching을 호출합니다.", async () => {
       const user = userEvent.setup();
       const fakeDeps = createFakeDeps({
@@ -468,6 +575,8 @@ type CreateFakeDepsParams = {
   deferReads?: boolean;
   /** true면 startWatching이 즉시 resolve하지 않고 pendingWatchings에 쌓인다 */
   deferWatching?: boolean;
+  /** true면 startWatching이 항상 reject한다 (watch 실패 시 열람 진행 검증용) */
+  failWatching?: boolean;
   /** fake startWatching이 반환할 canonical 경로의 접두사 (기본 "" = 경로 그대로) */
   canonicalPrefix?: string;
 };
@@ -477,6 +586,7 @@ function createFakeDeps({
   files = {},
   deferReads = false,
   deferWatching = false,
+  failWatching = false,
   canonicalPrefix = "",
 }: CreateFakeDepsParams) {
   const remainingPicks = [...pickedPaths];
@@ -517,6 +627,9 @@ function createFakeDeps({
     },
     startWatching: ({ path }: { path: string }) => {
       watchedPaths.push(path);
+      if (failWatching) {
+        return Promise.reject(new Error("watch 실패"));
+      }
       if (!deferWatching) {
         return Promise.resolve(`${canonicalPrefix}${path}`);
       }
