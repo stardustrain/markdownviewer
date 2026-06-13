@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import App from "./App";
 import { type DragDropPayload, type DragDropSubscriber } from "./hooks/useFileDrop";
@@ -772,6 +772,81 @@ describe("App", () => {
       expect(screen.getByRole("button", { name: /파일 열기/ })).toBeInTheDocument();
       expect(screen.queryByRole("heading", { name: "문서A" })).not.toBeInTheDocument();
       expect(fakeDeps.stoppedWatchPaths).toEqual(["/tmp/a.md"]);
+    });
+  });
+
+  context("탭 전환 단축키를 누르는 경우", () => {
+    test("Cmd+Shift+]는 다음 탭으로 순환하고 기본 동작을 막습니다.", async () => {
+      const fakeDeps = createFakeDeps({
+        osOpenedPaths: ["/tmp/a.md", "/tmp/b.md"],
+        files: {
+          "/tmp/a.md": "# 문서A",
+          "/tmp/b.md": "# 문서B",
+        },
+      });
+      render(<App {...fakeDeps.props} />);
+      await screen.findByRole("heading", { name: "문서B" });
+      const event = new KeyboardEvent("keydown", {
+        key: "]",
+        code: "BracketRight",
+        metaKey: true,
+        shiftKey: true,
+        bubbles: true,
+        cancelable: true,
+      });
+      const preventDefault = vi.spyOn(event, "preventDefault");
+
+      fireEvent(window, event);
+
+      expect(screen.getByRole("heading", { name: "문서A" })).toBeInTheDocument();
+      expect(preventDefault).toHaveBeenCalledOnce();
+    });
+
+    test("Cmd+Shift+[는 이전 탭으로 순환합니다.", async () => {
+      const fakeDeps = createFakeDeps({
+        osOpenedPaths: ["/tmp/a.md", "/tmp/b.md"],
+        files: {
+          "/tmp/a.md": "# 문서A",
+          "/tmp/b.md": "# 문서B",
+        },
+      });
+      render(<App {...fakeDeps.props} />);
+      await screen.findByRole("heading", { name: "문서B" });
+
+      fireEvent.keyDown(window, {
+        key: "[",
+        code: "BracketLeft",
+        metaKey: true,
+        shiftKey: true,
+      });
+
+      expect(screen.getByRole("heading", { name: "문서A" })).toBeInTheDocument();
+    });
+
+    test("meta 또는 shift가 없으면 무시합니다.", async () => {
+      const fakeDeps = createFakeDeps({
+        osOpenedPaths: ["/tmp/a.md", "/tmp/b.md"],
+        files: {
+          "/tmp/a.md": "# 문서A",
+          "/tmp/b.md": "# 문서B",
+        },
+      });
+      render(<App {...fakeDeps.props} />);
+      await screen.findByRole("heading", { name: "문서B" });
+      const event = new KeyboardEvent("keydown", {
+        key: "]",
+        code: "BracketRight",
+        metaKey: true,
+        shiftKey: false,
+        bubbles: true,
+        cancelable: true,
+      });
+      const preventDefault = vi.spyOn(event, "preventDefault");
+
+      fireEvent(window, event);
+
+      expect(screen.getByRole("heading", { name: "문서B" })).toBeInTheDocument();
+      expect(preventDefault).not.toHaveBeenCalled();
     });
   });
 

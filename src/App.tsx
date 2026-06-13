@@ -299,6 +299,52 @@ function App({
     await openPath({ path });
   }, [pickFile, openPath]);
 
+  const moveActiveTab = useCallback(
+    ({ direction }: { direction: "previous" | "next" }) => {
+      applyTabsState((current) => {
+        if (current.tabs.length <= 1 || current.activeTabId === null) {
+          return current;
+        }
+        const activeIndex = current.tabs.findIndex((tab) => tab.id === current.activeTabId);
+        if (activeIndex === -1) {
+          return current;
+        }
+        const offset = direction === "next" ? 1 : -1;
+        const nextIndex = (activeIndex + offset + current.tabs.length) % current.tabs.length;
+        const nextTab = current.tabs[nextIndex];
+        if (nextTab === undefined) {
+          return current;
+        }
+        return { ...current, activeTabId: nextTab.id };
+      });
+    },
+    [applyTabsState],
+  );
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (!event.metaKey || !event.shiftKey) {
+        return;
+      }
+      if (tabsRef.current.tabs.length <= 1 || tabsRef.current.activeTabId === null) {
+        return;
+      }
+      if (event.key === "]" || event.code === "BracketRight") {
+        event.preventDefault();
+        moveActiveTab({ direction: "next" });
+        return;
+      }
+      if (event.key === "[" || event.code === "BracketLeft") {
+        event.preventDefault();
+        moveActiveTab({ direction: "previous" });
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [moveActiveTab]);
+
   const handleLinkClick = useCallback(
     ({ url }: { url: string }) => {
       const classification = classifyLink({ href: url });
