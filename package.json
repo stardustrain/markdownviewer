@@ -18,6 +18,7 @@
     "typecheck": "tsc"
   },
   "dependencies": {
+    "@radix-ui/react-tabs": "^1.1.14",
     "@shikijs/langs": "^4.2.0",
     "@shikijs/rehype": "^4.2.0",
     "@shikijs/themes": "^4.2.0",
