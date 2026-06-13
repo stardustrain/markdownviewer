@@ -747,10 +747,42 @@ describe("App", () => {
       await user.click(screen.getByRole("link", { name: "다음 문서" }));
 
       expect(await screen.findByRole("heading", { name: "다음 문서 내용" })).toBeInTheDocument();
-      expect(screen.getByRole("tab", { name: "index.md (/tmp/docs/index.md)" })).toBeInTheDocument();
-      expect(screen.getByRole("tab", { name: "other.md (/tmp/docs/other.md)" })).toBeInTheDocument();
+      expect(screen.getByRole("tab", { name: "index.md (/tmp/docs/index.md)" })).toHaveAttribute(
+        "aria-selected",
+        "false",
+      );
+      expect(screen.getByRole("tab", { name: "other.md (/tmp/docs/other.md)" })).toHaveAttribute(
+        "aria-selected",
+        "true",
+      );
       expect(fakeDeps.readPaths).toEqual(["/tmp/docs/index.md", "/tmp/docs/other.md"]);
       expect(fakeDeps.watchedPaths).toEqual(["/tmp/docs/index.md", "/tmp/docs/other.md"]);
+    });
+
+    test("이미 열린 마크다운 링크를 클릭하면 기존 탭을 활성화합니다.", async () => {
+      const user = userEvent.setup();
+      const fakeDeps = createFakeDeps({
+        pickedPaths: ["/tmp/docs/index.md", "/tmp/docs/other.md"],
+        files: {
+          "/tmp/docs/index.md": "[다음 문서](other.md)",
+          "/tmp/docs/other.md": "# 다음 문서 내용",
+        },
+      });
+      render(<App {...fakeDeps.props} />);
+      await user.click(screen.getByRole("button", { name: /파일 열기/ }));
+      await screen.findByRole("link", { name: "다음 문서" });
+      await user.click(screen.getByRole("button", { name: "파일 열기" }));
+      await screen.findByRole("heading", { name: "다음 문서 내용" });
+      await user.click(screen.getByRole("tab", { name: "index.md (/tmp/docs/index.md)" }));
+
+      await user.click(screen.getByRole("link", { name: "다음 문서" }));
+
+      expect(screen.getByRole("heading", { name: "다음 문서 내용" })).toBeInTheDocument();
+      expect(screen.getAllByRole("tab", { name: "other.md (/tmp/docs/other.md)" })).toHaveLength(1);
+      expect(screen.getByRole("tab", { name: "other.md (/tmp/docs/other.md)" })).toHaveAttribute(
+        "aria-selected",
+        "true",
+      );
     });
 
     test("./ 접두사 경로는 정규화 없이 그대로 조합합니다.", async () => {

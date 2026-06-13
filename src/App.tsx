@@ -335,14 +335,14 @@ function App({
       const baseDirectory = openedPath.slice(0, openedPath.lastIndexOf("/"));
       const resolvedPath = `${baseDirectory}/${classification.path}`;
       if (isMarkdownPath({ path: resolvedPath })) {
-        void openPath({ path: resolvedPath });
+        void openPaths({ paths: [resolvedPath] });
         return;
       }
       void openWithOS({ path: resolvedPath }).catch((error) => {
         setNotice({ kind: "read-error", message: String(error) });
       });
     },
-    [openExternal, openPath, openWithOS],
+    [openExternal, openPaths, openWithOS],
   );
 
   const handleDrop = useCallback(
