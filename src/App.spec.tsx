@@ -301,6 +301,94 @@ describe("App", () => {
       expect(fakeDeps.readPaths).toHaveLength(readsBefore);
     });
 
+    test("비활성 탭이 변경되면 해당 탭 내용을 갱신하고 선택 시 최신 내용을 보여줍니다.", async () => {
+      const user = userEvent.setup();
+      const fakeDeps = createFakeDeps({
+        osOpenedPaths: ["/tmp/a.md", "/tmp/b.md"],
+        files: {
+          "/tmp/a.md": "# 문서A v1",
+          "/tmp/b.md": "# 문서B",
+        },
+      });
+      render(<App {...fakeDeps.props} />);
+      await screen.findByRole("heading", { name: "문서B" });
+
+      fakeDeps.setFileContent({ path: "/tmp/a.md", content: "# 문서A v2" });
+      act(() => {
+        fakeDeps.emitFileWatch({ path: "/tmp/a.md", kind: "changed" });
+      });
+      await act(async () => {});
+      await user.click(screen.getByRole("tab", { name: "a.md (/tmp/a.md)" }));
+
+      expect(screen.getByRole("heading", { name: "문서A v2" })).toBeInTheDocument();
+    });
+
+    test("비활성 탭도 연속 변경 시 늦게 도착한 이전 읽기가 새 내용을 덮지 않습니다.", async () => {
+      const user = userEvent.setup();
+      const fakeDeps = createFakeDeps({
+        osOpenedPaths: ["/tmp/a.md", "/tmp/b.md"],
+        files: {
+          "/tmp/a.md": "# 문서A v1",
+          "/tmp/b.md": "# 문서B",
+        },
+        deferReads: true,
+      });
+      render(<App {...fakeDeps.props} />);
+      await act(async () => {});
+      act(() => {
+        fakeDeps.settlePendingRead(0); // A 최초 읽기
+        fakeDeps.settlePendingRead(1); // B 최초 읽기
+      });
+      await screen.findByRole("heading", { name: "문서B" });
+
+      fakeDeps.setFileContent({ path: "/tmp/a.md", content: "# 문서A v2" });
+      act(() => {
+        fakeDeps.emitFileWatch({ path: "/tmp/a.md", kind: "changed" });
+      }); // pendingReads[2] = A v2 스냅샷
+      fakeDeps.setFileContent({ path: "/tmp/a.md", content: "# 문서A v3" });
+      act(() => {
+        fakeDeps.emitFileWatch({ path: "/tmp/a.md", kind: "changed" });
+      }); // pendingReads[3] = A v3 스냅샷
+
+      act(() => {
+        fakeDeps.settlePendingRead(3);
+      });
+      await act(async () => {});
+      act(() => {
+        fakeDeps.settlePendingRead(2);
+      });
+      await act(async () => {});
+      await user.click(screen.getByRole("tab", { name: "a.md (/tmp/a.md)" }));
+
+      expect(screen.getByRole("heading", { name: "문서A v3" })).toBeInTheDocument();
+      expect(screen.queryByRole("heading", { name: "문서A v2" })).not.toBeInTheDocument();
+    });
+
+    test("닫힌 탭 path의 changed/removed 이벤트를 무시합니다.", async () => {
+      const user = userEvent.setup();
+      const fakeDeps = createFakeDeps({
+        osOpenedPaths: ["/tmp/a.md", "/tmp/b.md"],
+        files: {
+          "/tmp/a.md": "# 문서A",
+          "/tmp/b.md": "# 문서B",
+        },
+      });
+      render(<App {...fakeDeps.props} />);
+      await screen.findByRole("heading", { name: "문서B" });
+      await user.click(screen.getByRole("button", { name: "a.md 닫기 (/tmp/a.md)" }));
+      const readsBefore = fakeDeps.readPaths.length;
+
+      act(() => {
+        fakeDeps.emitFileWatch({ path: "/tmp/a.md", kind: "changed" });
+        fakeDeps.emitFileWatch({ path: "/tmp/a.md", kind: "removed" });
+      });
+      await act(async () => {});
+
+      expect(fakeDeps.readPaths).toHaveLength(readsBefore);
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+      expect(screen.queryByRole("tab", { name: "a.md (/tmp/a.md)" })).not.toBeInTheDocument();
+    });
+
     test("연속 변경 시 늦게 도착한 이전 읽기가 새 내용을 덮지 않습니다.", async () => {
       const user = userEvent.setup();
       const fakeDeps = createFakeDeps({
@@ -400,6 +488,7 @@ describe("App", () => {
         fakeDeps.triggerMenuOpen();
       });
       await act(async () => {});
+      fakeDeps.setFileContent({ path: "/tmp/a.md", content: "# 문서A 변경" });
       act(() => {
         fakeDeps.emitFileWatch({ path: "/tmp/a.md", kind: "changed" });
       });
@@ -408,6 +497,9 @@ describe("App", () => {
       });
 
       expect(await screen.findByRole("heading", { name: "문서B" })).toBeInTheDocument();
+      await user.click(screen.getByRole("tab", { name: "a.md (/tmp/a.md)" }));
+
+      expect(await screen.findByRole("heading", { name: "문서A 변경" })).toBeInTheDocument();
     });
 
     test("재읽기에 실패하면 read-error 배너를 띄우고 내용을 유지합니다.", async () => {
@@ -447,6 +539,56 @@ describe("App", () => {
 
       expect(await screen.findByRole("alert")).toHaveTextContent(/삭제/);
       expect(screen.getByRole("heading", { name: "버전1" })).toBeInTheDocument();
+    });
+
+    test("비활성 탭이 삭제되면 선택 시 삭제 배너를 보여주고 내용을 유지합니다.", async () => {
+      const user = userEvent.setup();
+      const fakeDeps = createFakeDeps({
+        osOpenedPaths: ["/tmp/a.md", "/tmp/b.md"],
+        files: {
+          "/tmp/a.md": "# 문서A",
+          "/tmp/b.md": "# 문서B",
+        },
+      });
+      render(<App {...fakeDeps.props} />);
+      await screen.findByRole("heading", { name: "문서B" });
+
+      act(() => {
+        fakeDeps.emitFileWatch({ path: "/tmp/a.md", kind: "removed" });
+      });
+
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+      await user.click(screen.getByRole("tab", { name: "a.md 삭제됨 (/tmp/a.md)" }));
+
+      expect(screen.getByRole("alert")).toHaveTextContent(/삭제/);
+      expect(screen.getByRole("heading", { name: "문서A" })).toBeInTheDocument();
+    });
+
+    test("global notice가 active tab notice보다 우선 렌더됩니다.", async () => {
+      const user = userEvent.setup();
+      const fakeDeps = createFakeDeps({
+        osOpenedPaths: ["/tmp/a.md", "/tmp/b.md"],
+        files: {
+          "/tmp/a.md": "# 문서A",
+          "/tmp/b.md": "# 문서B\n\n[보고서](report.pdf)",
+        },
+        failOpenWithOS: true,
+      });
+      render(<App {...fakeDeps.props} />);
+      await screen.findByRole("link", { name: "보고서" });
+
+      act(() => {
+        fakeDeps.emitFileWatch({ path: "/tmp/a.md", kind: "removed" });
+      });
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+
+      await user.click(screen.getByRole("link", { name: "보고서" }));
+      expect(await screen.findByRole("alert")).toHaveTextContent(/열기 실패/);
+
+      await user.click(screen.getByRole("tab", { name: "a.md 삭제됨 (/tmp/a.md)" }));
+
+      expect(screen.getByRole("alert")).toHaveTextContent(/열기 실패/);
+      expect(screen.getByRole("alert")).not.toHaveTextContent(/삭제/);
     });
 
     test("삭제 후 다른 내용으로 재생성되면 배너를 해제하고 새 내용을 렌더합니다.", async () => {

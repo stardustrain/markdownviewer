@@ -20,7 +20,6 @@ type DocumentTab = {
   content: string;
   notice: AppNotice | null;
   status: "ready" | "deleted";
-  openGeneration: number;
   reloadSequence: number;
 };
 
@@ -117,24 +116,36 @@ function App({
   const [tabsState, setTabsState] = useState<TabsState>(initialTabsState);
   const [notice, setNotice] = useState<AppNotice | null>(null);
   const activeTab = getActiveTab({ state: tabsState });
+  const visibleNotice = notice ?? activeTab?.notice ?? null;
   const tabsRef = useRef<TabsState>(initialTabsState);
   const nextTabIdRef = useRef(1);
   const latestOpenRequestRef = useRef(0);
-  // active 문서의 단일 식별자(canonical 경로) — watcher 이벤트 필터용.
-  // stable 콜백(handleFileWatchEvent)에서 stale 클로저 없이 읽기 위해 ref
-  const activePathRef = useRef<string | null>(null);
-  // active 전환을 시도하는 열기 세대 — 진행 중이던 이전 재읽기 결과를 무효화한다.
-  const openGenerationRef = useRef(0);
-  // 재읽기 시퀀스 — 재읽기와 removed 이벤트가 올린다. 늦게 도착한 stale 재읽기를 무효화
-  const reloadSequenceRef = useRef(0);
 
   const applyTabsState = useCallback((getNextState: (current: TabsState) => TabsState) => {
     setTabsState((current) => {
       const nextState = getNextState(current);
       tabsRef.current = nextState;
-      activePathRef.current = getActiveTab({ state: nextState })?.path ?? null;
       return nextState;
     });
+  }, []);
+
+  const updateTab = useCallback(
+    (id: string, updater: (tab: DocumentTab) => DocumentTab) => {
+      applyTabsState((current) => ({
+        ...current,
+        tabs: current.tabs.map((tab) => (tab.id === id ? updater(tab) : tab)),
+      }));
+    },
+    [applyTabsState],
+  );
+
+  const getTabByPath = useCallback((path: string) => {
+    return tabsRef.current.tabs.find((tab) => tab.path === path) ?? null;
+  }, []);
+
+  const getActiveTabPath = useCallback(() => {
+    const { activeTabId, tabs } = tabsRef.current;
+    return tabs.find((tab) => tab.id === activeTabId)?.path ?? null;
   }, []);
 
   const openPaths = useCallback(
@@ -146,7 +157,6 @@ function App({
 
       const requestSequence = latestOpenRequestRef.current + 1;
       latestOpenRequestRef.current = requestSequence;
-      openGenerationRef.current += 1;
       const results = await Promise.all(
         markdownPaths.map((path, index): Promise<OpenPathResult> => {
           return openMarkdownPath({
@@ -160,7 +170,6 @@ function App({
               nextTabIdRef.current += 1;
               return id;
             },
-            openGeneration: requestSequence,
           });
         }),
       );
@@ -184,8 +193,6 @@ function App({
       }
 
       setNotice(null);
-      // 이전 active 문서의 재읽기가 아직 in-flight일 수 있다 — 새 active 탭을 덮지 못하게 무효화
-      reloadSequenceRef.current += 1;
     },
     [applyTabsState, readFile, startWatching],
   );
@@ -197,86 +204,61 @@ function App({
     [openPaths],
   );
 
-  const reloadOpenedDocument = useCallback(async () => {
-    const path = activePathRef.current;
-    if (path === null) {
-      return;
-    }
-    const openGeneration = openGenerationRef.current;
-    const sequence = reloadSequenceRef.current + 1;
-    reloadSequenceRef.current = sequence;
-    try {
-      const content = await readFile({ path });
-      if (openGenerationRef.current !== openGeneration || reloadSequenceRef.current !== sequence) {
+  const reloadTab = useCallback(
+    async ({ tabId, path }: { tabId: string; path: string }) => {
+      const tab = tabsRef.current.tabs.find((candidate) => candidate.id === tabId);
+      if (tab === undefined) {
         return;
       }
-      // 동일성 단락: 내용이 같으면 문서 setState 생략 — 단, notice 해제는 항상
-      // (삭제 → 같은 내용 재생성 시 배너가 남는 것 방지, 스펙 §3.1)
-      setNotice(null);
-      applyTabsState((current) => {
-        const currentActiveTab = getActiveTab({ state: current });
-        if (currentActiveTab === null || currentActiveTab.path !== path) {
-          return current;
+      const sequence = tab.reloadSequence + 1;
+      updateTab(tabId, (current) => ({ ...current, reloadSequence: sequence }));
+      try {
+        const content = await readFile({ path });
+        const latestTab = tabsRef.current.tabs.find((candidate) => candidate.id === tabId);
+        if (latestTab === undefined || latestTab.reloadSequence !== sequence) {
+          return;
         }
-        return {
+        updateTab(tabId, (current) => ({
           ...current,
-          tabs: current.tabs.map((tab) => {
-            if (tab.id !== currentActiveTab.id) {
-              return tab;
-            }
-            if (tab.content === content && tab.status === "ready") {
-              return tab;
-            }
-            return { ...tab, content, status: "ready", notice: null, reloadSequence: sequence };
-          }),
-        };
-      });
-    } catch (error) {
-      if (openGenerationRef.current === openGeneration && reloadSequenceRef.current === sequence) {
-        setNotice({ kind: "read-error", message: String(error) });
+          content: current.content === content ? current.content : content,
+          notice: null,
+          status: "ready",
+        }));
+      } catch (error) {
+        const latestTab = tabsRef.current.tabs.find((candidate) => candidate.id === tabId);
+        if (latestTab === undefined || latestTab.reloadSequence !== sequence) {
+          return;
+        }
+        updateTab(tabId, (current) => ({
+          ...current,
+          notice: { kind: "read-error", message: String(error) },
+        }));
       }
-    }
-  }, [applyTabsState, readFile]);
+    },
+    [readFile, updateTab],
+  );
 
   const handleFileWatchEvent = useCallback(
     (payload: FileWatchPayload) => {
-      if (payload.path !== activePathRef.current) {
-        return; // 이전 watcher의 잔여 이벤트·다른 문서 이벤트 무시
-      }
-      if (payload.kind === "removed") {
-        // in-flight 재읽기가 늦게 resolve해 삭제 배너를 지우지 못하게 무효화
-        reloadSequenceRef.current += 1;
-        applyTabsState((current) => {
-          const currentActiveTab = getActiveTab({ state: current });
-          if (currentActiveTab === null || currentActiveTab.path !== payload.path) {
-            return current;
-          }
-          return {
-            ...current,
-            tabs: current.tabs.map((tab) => {
-              if (tab.id !== currentActiveTab.id) {
-                return tab;
-              }
-              return {
-                ...tab,
-                status: "deleted",
-                notice: {
-                  kind: "file-removed",
-                  message: "파일이 삭제되거나 이동되었습니다",
-                },
-              };
-            }),
-          };
-        });
-        setNotice({
-          kind: "file-removed",
-          message: "파일이 삭제되거나 이동되었습니다",
-        });
+      const tab = getTabByPath(payload.path);
+      if (tab === null) {
         return;
       }
-      void reloadOpenedDocument();
+      if (payload.kind === "removed") {
+        updateTab(tab.id, (current) => ({
+          ...current,
+          reloadSequence: current.reloadSequence + 1,
+          notice: {
+            kind: "file-removed",
+            message: "파일이 삭제되거나 이동되었습니다",
+          },
+          status: "deleted",
+        }));
+        return;
+      }
+      void reloadTab({ tabId: tab.id, path: tab.path });
     },
-    [applyTabsState, reloadOpenedDocument],
+    [getTabByPath, reloadTab, updateTab],
   );
 
   useFileWatch({
@@ -327,7 +309,7 @@ function App({
         void openExternal({ url: classification.url });
         return;
       }
-      const openedPath = activePathRef.current;
+      const openedPath = getActiveTabPath();
       if (openedPath === null) {
         return; // 문서 없이는 MarkdownView가 렌더되지 않으므로 도달 불가 — 방어
       }
@@ -342,7 +324,7 @@ function App({
         setNotice({ kind: "read-error", message: String(error) });
       });
     },
-    [openExternal, openPaths, openWithOS],
+    [getActiveTabPath, openExternal, openPaths, openWithOS],
   );
 
   const handleDrop = useCallback(
@@ -367,7 +349,6 @@ function App({
 
   const selectTab = useCallback(
     ({ id }: { id: string }) => {
-      reloadSequenceRef.current += 1;
       applyTabsState((current) => {
         const tab = current.tabs.find((item) => item.id === id);
         if (tab === undefined) {
@@ -375,7 +356,6 @@ function App({
         }
         return { ...current, activeTabId: id };
       });
-      setNotice(null);
     },
     [applyTabsState],
   );
@@ -387,7 +367,6 @@ function App({
         return;
       }
       void stopWatching({ path: tab.path });
-      reloadSequenceRef.current += 1;
       applyTabsState((current) => {
         const nextActiveTabId = getNextActiveTabIdAfterClose({
           tabs: current.tabs,
@@ -406,9 +385,9 @@ function App({
 
   return (
     <main className={isDragging ? "app dragging" : "app"}>
-      {notice !== null && (
+      {visibleNotice !== null && (
         <div role="alert" className="error-banner">
-          {notice.message}
+          {visibleNotice.message}
         </div>
       )}
       {activeTab === null ? (
@@ -489,7 +468,6 @@ async function openMarkdownPath({
   startWatching,
   tabsRef,
   createTabId,
-  openGeneration,
 }: {
   path: string;
   index: number;
@@ -497,7 +475,6 @@ async function openMarkdownPath({
   startWatching: StartWatching;
   tabsRef: MutableRef<TabsState>;
   createTabId: () => string;
-  openGeneration: number;
 }): Promise<OpenPathResult> {
   const existingTab = findTabByPath({ tabs: tabsRef.current.tabs, path });
   if (existingTab !== null) {
@@ -517,7 +494,6 @@ async function openMarkdownPath({
         content,
         notice: null,
         status: "ready",
-        openGeneration,
         reloadSequence: 0,
       },
     };
