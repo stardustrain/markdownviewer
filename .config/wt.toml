@@ -1,0 +1,59 @@
+[[pre-start]]
+trust = "mise trust mise.toml"
+
+[[pre-start]]
+copy = "wt step copy-ignored"
+
+[[pre-start]]
+deps = "pnpm install"
+
+# Post-Start: Runs in BACKGROUND after worktree creation (parallel)
+# Use for: dev servers, file watchers, background builds
+# Output logged to .git/wt-logs/{branch}-project-post-start-{name}.log
+#
+# [post-start]
+# server = "npm run dev -- --port {{ branch | hash_port }}"
+# watch = "npm run watch"
+
+# Post-Switch: Runs in BACKGROUND after every switch (parallel)
+# Use for: terminal tab naming, tmux window titles, IDE notifications
+#
+# post-switch = "echo -ne '\\033]0;{{ branch }}\\007'"
+
+# Pre-Commit: Runs before committing during merge, BLOCKS (fail-fast)
+# Use for: formatters, linters, quick checks
+
+[[pre-merge]]
+test = "pnpm test"
+
+[[pre-merge]]
+typecheck = "pnpm typecheck"
+
+[[pre-merge]]
+build = "pnpm build"
+
+# Post-Merge: Runs after successful merge, BLOCKS
+# Use for: deployment, notifications
+#
+# post-merge = "echo 'Merged {{ branch }} to {{ target }}'"
+
+# Pre-Remove: Runs before worktree removal, BLOCKS (fail-fast)
+# Use for: cleanup, stopping services
+
+[pre-remove]
+server = "pkill -f {{ worktree_path }}/example 2>/dev/null || true"
+
+# ============================================================================
+# Dev Server URL (shown in `wt list`)
+# ============================================================================
+# [list]
+# url = "http://localhost:{{ branch | hash_port }}"
+
+# ============================================================================
+# CI Platform Override
+# ============================================================================
+# Override CI platform detection for GitHub Enterprise or self-hosted GitLab
+# with custom domains where URL detection fails.
+#
+# [ci]
+# platform = "github"  # or "gitlab"

@@ -1,15 +1,12 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
-import { openUrl } from "@tauri-apps/plugin-opener";
+import { openPath as openPathWithDefaultApp, openUrl } from "@tauri-apps/plugin-opener";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { MarkdownView } from "./components/MarkdownView";
 import { type DragDropSubscriber, useFileDrop } from "./hooks/useFileDrop";
-import {
-  type FileWatchPayload,
-  type FileWatchSubscriber,
-  useFileWatch,
-} from "./hooks/useFileWatch";
+import { type FileWatchPayload, type FileWatchSubscriber, useFileWatch } from "./hooks/useFileWatch";
+import { classifyLink } from "./lib/classifyLink";
 import { installAppMenu } from "./lib/installAppMenu";
 import { isMarkdownPath, MARKDOWN_EXTENSIONS } from "./lib/isMarkdownPath";
 import "./App.css";
@@ -56,9 +53,15 @@ type AppProps = {
   /** 실행 중 OS 파일 열기("opened" 이벤트) 구독
    * @default Tauri listen("opened")
    */
-  subscribeOpened?: (args: {
-    onOpen: (args: { paths: string[] }) => void;
-  }) => Promise<() => void>;
+  subscribeOpened?: (args: { onOpen: (args: { paths: string[] }) => void }) => Promise<() => void>;
+  /** 외부 링크(스킴 있는 href)를 기본 브라우저로 열기
+   * @default Tauri opener openUrl 래퍼
+   */
+  openExternal?: (args: { url: string }) => Promise<void>;
+  /** 파일을 OS 기본 앱으로 열기 — 비마크다운 상대 경로 링크용
+   * @default Tauri opener openPath 래퍼
+   */
+  openWithOS?: (args: { path: string }) => Promise<void>;
 };
 
 function App({
@@ -70,10 +73,10 @@ function App({
   subscribeFileWatch,
   fetchOpenedFiles = fetchOpenedFilesFromOS,
   subscribeOpened = subscribeToOpenedFiles,
+  openExternal = openExternalUrl,
+  openWithOS = openFileWithOS,
 }: AppProps) {
-  const [openedDocument, setOpenedDocument] = useState<OpenedDocument | null>(
-    null,
-  );
+  const [openedDocument, setOpenedDocument] = useState<OpenedDocument | null>(null);
   const [notice, setNotice] = useState<AppNotice | null>(null);
   // 문서의 단일 식별자(canonical 경로) — watcher 이벤트 필터용.
   // stable 콜백(handleFileWatchEvent)에서 stale 클로저 없이 읽기 위해 ref
@@ -125,10 +128,7 @@ function App({
     reloadSequenceRef.current = sequence;
     try {
       const content = await readFile({ path });
-      if (
-        openGenerationRef.current !== openGeneration ||
-        reloadSequenceRef.current !== sequence
-      ) {
+      if (openGenerationRef.current !== openGeneration || reloadSequenceRef.current !== sequence) {
         return;
       }
       // 동일성 단락: 내용이 같으면 문서 setState 생략 — 단, notice 해제는 항상
@@ -141,10 +141,7 @@ function App({
         return { ...current, content };
       });
     } catch (error) {
-      if (
-        openGenerationRef.current === openGeneration &&
-        reloadSequenceRef.current === sequence
-      ) {
+      if (openGenerationRef.current === openGeneration && reloadSequenceRef.current === sequence) {
         setNotice({ kind: "read-error", message: String(error) });
       }
     }
@@ -212,6 +209,34 @@ function App({
     await openPath({ path });
   }, [pickFile, openPath]);
 
+  const handleLinkClick = useCallback(
+    ({ url }: { url: string }) => {
+      const classification = classifyLink({ href: url });
+      if (classification.kind === "ignored") {
+        return;
+      }
+      if (classification.kind === "external") {
+        void openExternal({ url: classification.url });
+        return;
+      }
+      const openedPath = openedPathRef.current;
+      if (openedPath === null) {
+        return; // 문서 없이는 MarkdownView가 렌더되지 않으므로 도달 불가 — 방어
+      }
+      // 정규화 없이 조합 — "."/".."은 OS가 해석, canonicalize가 식별자 정리 (스펙 §2)
+      const baseDirectory = openedPath.slice(0, openedPath.lastIndexOf("/"));
+      const resolvedPath = `${baseDirectory}/${classification.path}`;
+      if (isMarkdownPath({ path: resolvedPath })) {
+        void openPath({ path: resolvedPath });
+        return;
+      }
+      void openWithOS({ path: resolvedPath }).catch((error) => {
+        setNotice({ kind: "read-error", message: String(error) });
+      });
+    },
+    [openExternal, openPath, openWithOS],
+  );
+
   const handleDrop = useCallback(
     ({ paths }: { paths: string[] }) => {
       const markdownPath = paths.find((path) => isMarkdownPath({ path }));
@@ -251,10 +276,7 @@ function App({
           </button>
         </div>
       ) : (
-        <MarkdownView
-          source={openedDocument.content}
-          onLinkClick={handleLinkClick}
-        />
+        <MarkdownView source={openedDocument.content} onLinkClick={handleLinkClick} />
       )}
     </main>
   );
@@ -283,18 +305,18 @@ function fetchOpenedFilesFromOS(): Promise<string[]> {
   return invoke<string[]>("opened_files");
 }
 
-function subscribeToOpenedFiles({
-  onOpen,
-}: {
-  onOpen: (args: { paths: string[] }) => void;
-}): Promise<() => void> {
+function subscribeToOpenedFiles({ onOpen }: { onOpen: (args: { paths: string[] }) => void }): Promise<() => void> {
   return listen<string[]>("opened", (event) => {
     onOpen({ paths: event.payload });
   });
 }
 
-function handleLinkClick({ url }: { url: string }) {
-  void openUrl(url);
+function openExternalUrl({ url }: { url: string }): Promise<void> {
+  return openUrl(url);
+}
+
+function openFileWithOS({ path }: { path: string }): Promise<void> {
+  return openPathWithDefaultApp(path);
 }
 
 function installDefaultAppMenu({ onOpen }: { onOpen: () => void }) {
