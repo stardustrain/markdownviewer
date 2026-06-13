@@ -24,7 +24,7 @@ export default defineConfig({
           name: "node",
           environment: "node",
           globals: true,
-          include: ["src/**/*.spec.ts"],
+          include: ["src/**/*.spec.ts", "scripts/**/*.spec.mjs"],
         },
       },
       {
