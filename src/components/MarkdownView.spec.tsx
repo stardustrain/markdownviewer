@@ -1,5 +1,6 @@
 import { createEvent, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import type { RenderMermaidDiagramParams } from "../lib/renderMermaidDiagram";
 import { MarkdownView } from "./MarkdownView";
 
 const context = describe;
@@ -161,6 +162,99 @@ describe("MarkdownView", () => {
     });
   });
 
+  context("mermaid 코드 펜스가 포함된 경우", () => {
+    test("mermaid 펜스를 다이어그램으로 렌더하고 코드 원문을 전달합니다.", async () => {
+      const receivedCodes: string[] = [];
+      render(
+        <MarkdownView
+          source={"```mermaid\ngraph TD\n  A --> B\n```"}
+          onLinkClick={noopLinkClick}
+          mermaid={{
+            renderDiagram: ({ code }) => {
+              receivedCodes.push(code);
+              return Promise.resolve({
+                svg: '<svg role="img" aria-label="mermaid 다이어그램"></svg>',
+              });
+            },
+            subscribeColorScheme: subscribeLightColorScheme,
+          }}
+        />,
+      );
+
+      expect(await screen.findByRole("img", { name: "mermaid 다이어그램" })).toBeInTheDocument();
+      expect(receivedCodes).toEqual(["graph TD\n  A --> B"]);
+    });
+
+    test("다이어그램을 pre 코드박스 안에 렌더하지 않습니다.", async () => {
+      render(
+        <MarkdownView
+          source={"```mermaid\ngraph TD\n```"}
+          onLinkClick={noopLinkClick}
+          mermaid={{
+            renderDiagram: resolveNamedSvgDiagram,
+            subscribeColorScheme: subscribeLightColorScheme,
+          }}
+        />,
+      );
+
+      const diagram = await screen.findByRole("img", {
+        name: "mermaid 다이어그램",
+      });
+      // hName 방식의 결함(pre 래퍼 잔존) 회귀 검증 — 스펙 §2 가로채기 지점
+      expect(diagram.closest("pre")).toBeNull();
+    });
+
+    test("mermaid 펜스가 있어도 다른 코드 펜스는 shiki가 하이라이팅합니다.", () => {
+      const { container } = render(
+        <MarkdownView
+          source={"```mermaid\ngraph TD\n```\n\n```typescript\nconst answer = 42\n```"}
+          onLinkClick={noopLinkClick}
+          mermaid={{
+            renderDiagram: neverResolveDiagram,
+            subscribeColorScheme: subscribeLightColorScheme,
+          }}
+        />,
+      );
+
+      expect(container.querySelector("pre.shiki")).not.toBeNull();
+      expect(container.querySelector("pre.shiki")).toHaveTextContent("const answer = 42");
+    });
+
+    test("source가 바뀌어도 같은 mermaid 펜스의 다이어그램은 유지하고 다시 렌더하지 않습니다.", async () => {
+      const receivedCodes: string[] = [];
+      // components remount 회귀 검증 — DI 객체는 rerender 간 참조가 안정적이어야 한다
+      const stableMermaid = {
+        renderDiagram: ({ code }: RenderMermaidDiagramParams) => {
+          receivedCodes.push(code);
+          return Promise.resolve({
+            svg: '<svg role="img" aria-label="mermaid 다이어그램"></svg>',
+          });
+        },
+        subscribeColorScheme: subscribeLightColorScheme,
+      };
+      const { rerender } = render(
+        <MarkdownView
+          source={"# v1\n\n```mermaid\ngraph TD\n```"}
+          onLinkClick={noopLinkClick}
+          mermaid={stableMermaid}
+        />,
+      );
+      await screen.findByRole("img", { name: "mermaid 다이어그램" });
+
+      rerender(
+        <MarkdownView
+          source={"# v2 바뀐 본문\n\n```mermaid\ngraph TD\n```"}
+          onLinkClick={noopLinkClick}
+          mermaid={stableMermaid}
+        />,
+      );
+
+      // remount되면 pending으로 초기화되어 SVG가 사라지고 재호출이 발생한다 (스펙 §2 components 안정성)
+      expect(screen.getByRole("img", { name: "mermaid 다이어그램" })).toBeInTheDocument();
+      expect(receivedCodes).toHaveLength(1);
+    });
+  });
+
   context("YAML frontmatter가 있는 경우", () => {
     test("frontmatter는 본문에 표시하지 않습니다.", () => {
       render(<MarkdownView source={"---\ntitle: secret\n---\n\n# 제목"} onLinkClick={noopLinkClick} />);
@@ -173,4 +267,23 @@ describe("MarkdownView", () => {
 
 function noopLinkClick() {
   // 링크 클릭을 검증하지 않는 테스트용 no-op
+}
+
+function subscribeLightColorScheme({ onChange }: { onChange: (args: { isDark: boolean }) => void }): () => void {
+  onChange({ isDark: false });
+  return () => {
+    // 해제할 리소스가 없는 테스트용 구독자
+  };
+}
+
+function resolveNamedSvgDiagram(): Promise<{ svg: string }> {
+  return Promise.resolve({
+    svg: '<svg role="img" aria-label="mermaid 다이어그램"></svg>',
+  });
+}
+
+function neverResolveDiagram(): Promise<{ svg: string }> {
+  return new Promise(() => {
+    // 테스트가 끝날 때까지 의도적으로 완료하지 않는 렌더러
+  });
 }
