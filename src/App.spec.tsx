@@ -1,10 +1,7 @@
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import App from "./App";
-import {
-  type DragDropPayload,
-  type DragDropSubscriber,
-} from "./hooks/useFileDrop";
+import { type DragDropPayload, type DragDropSubscriber } from "./hooks/useFileDrop";
 import { type FileWatchPayload } from "./hooks/useFileWatch";
 
 const context = describe;
@@ -16,9 +13,7 @@ describe("App", () => {
 
       render(<App {...fakeDeps.props} />);
 
-      expect(
-        screen.getByRole("button", { name: /파일 열기/ }),
-      ).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /파일 열기/ })).toBeInTheDocument();
     });
   });
 
@@ -36,9 +31,7 @@ describe("App", () => {
         });
       });
 
-      expect(
-        await screen.findByRole("heading", { name: "드롭으로 열기" }),
-      ).toBeInTheDocument();
+      expect(await screen.findByRole("heading", { name: "드롭으로 열기" })).toBeInTheDocument();
       expect(fakeDeps.readPaths).toEqual(["/tmp/note.md"]);
     });
 
@@ -51,9 +44,7 @@ describe("App", () => {
       });
 
       expect(fakeDeps.readPaths).toHaveLength(0);
-      expect(
-        screen.getByRole("button", { name: /파일 열기/ }),
-      ).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /파일 열기/ })).toBeInTheDocument();
     });
 
     test("드래그 중에는 dragging 클래스로 하이라이트합니다.", () => {
@@ -80,9 +71,7 @@ describe("App", () => {
         fakeDeps.triggerMenuOpen();
       });
 
-      expect(
-        await screen.findByRole("heading", { name: "메뉴로 열기" }),
-      ).toBeInTheDocument();
+      expect(await screen.findByRole("heading", { name: "메뉴로 열기" })).toBeInTheDocument();
     });
   });
 
@@ -97,9 +86,7 @@ describe("App", () => {
 
       await user.click(screen.getByRole("button", { name: /파일 열기/ }));
 
-      expect(
-        await screen.findByRole("heading", { name: "제목" }),
-      ).toBeInTheDocument();
+      expect(await screen.findByRole("heading", { name: "제목" })).toBeInTheDocument();
     });
 
     test("다이얼로그를 취소하면 아무것도 읽지 않고 빈 상태를 유지합니다.", async () => {
@@ -110,9 +97,7 @@ describe("App", () => {
       await user.click(screen.getByRole("button", { name: /파일 열기/ }));
 
       expect(fakeDeps.readPaths).toHaveLength(0);
-      expect(
-        screen.getByRole("button", { name: /파일 열기/ }),
-      ).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /파일 열기/ })).toBeInTheDocument();
     });
 
     test("읽기에 실패하면 에러 배너를 띄우고 기존 문서를 유지합니다.", async () => {
@@ -135,9 +120,7 @@ describe("App", () => {
       });
 
       expect(await screen.findByRole("alert")).toHaveTextContent(/읽기 실패/);
-      expect(
-        screen.getByRole("heading", { name: "기존 문서" }),
-      ).toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "기존 문서" })).toBeInTheDocument();
     });
 
     test("실패 후 다시 성공하면 에러 배너가 사라집니다.", async () => {
@@ -152,9 +135,7 @@ describe("App", () => {
 
       await user.click(screen.getByRole("button", { name: /파일 열기/ }));
 
-      expect(
-        await screen.findByRole("heading", { name: "복구된 문서" }),
-      ).toBeInTheDocument();
+      expect(await screen.findByRole("heading", { name: "복구된 문서" })).toBeInTheDocument();
       expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     });
 
@@ -183,12 +164,8 @@ describe("App", () => {
       });
       await act(async () => {});
 
-      expect(
-        screen.getByRole("heading", { name: "문서B" }),
-      ).toBeInTheDocument();
-      expect(
-        screen.queryByRole("heading", { name: "문서A" }),
-      ).not.toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "문서B" })).toBeInTheDocument();
+      expect(screen.queryByRole("heading", { name: "문서A" })).not.toBeInTheDocument();
     });
 
     test("늦게 실패한 이전 열기가 새 문서를 덮지 않습니다.", async () => {
@@ -218,9 +195,7 @@ describe("App", () => {
       });
       await act(async () => {});
 
-      expect(
-        screen.getByRole("heading", { name: "정상 문서" }),
-      ).toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "정상 문서" })).toBeInTheDocument();
       expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     });
 
@@ -249,12 +224,8 @@ describe("App", () => {
       });
       await act(async () => {});
 
-      expect(
-        screen.getByRole("heading", { name: "문서B" }),
-      ).toBeInTheDocument();
-      expect(
-        screen.queryByRole("heading", { name: "문서A" }),
-      ).not.toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "문서B" })).toBeInTheDocument();
+      expect(screen.queryByRole("heading", { name: "문서A" })).not.toBeInTheDocument();
     });
   });
 
@@ -274,9 +245,7 @@ describe("App", () => {
         fakeDeps.emitFileWatch({ path: "/tmp/note.md", kind: "changed" });
       });
 
-      expect(
-        await screen.findByRole("heading", { name: "버전2" }),
-      ).toBeInTheDocument();
+      expect(await screen.findByRole("heading", { name: "버전2" })).toBeInTheDocument();
       expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     });
 
@@ -331,12 +300,8 @@ describe("App", () => {
       });
       await act(async () => {});
 
-      expect(
-        screen.getByRole("heading", { name: "버전3" }),
-      ).toBeInTheDocument();
-      expect(
-        screen.queryByRole("heading", { name: "버전2" }),
-      ).not.toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "버전3" })).toBeInTheDocument();
+      expect(screen.queryByRole("heading", { name: "버전2" })).not.toBeInTheDocument();
     });
 
     test("늦게 실패한 이전 재읽기가 최신 문서를 덮지 않습니다.", async () => {
@@ -379,9 +344,7 @@ describe("App", () => {
       });
       await act(async () => {});
 
-      expect(
-        screen.getByRole("heading", { name: "버전2" }),
-      ).toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "버전2" })).toBeInTheDocument();
       expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     });
 
@@ -411,9 +374,7 @@ describe("App", () => {
         fakeDeps.settlePendingWatching({ index: 1, canonicalPath: "/tmp/b.md" });
       });
 
-      expect(
-        await screen.findByRole("heading", { name: "문서B" }),
-      ).toBeInTheDocument();
+      expect(await screen.findByRole("heading", { name: "문서B" })).toBeInTheDocument();
     });
 
     test("재읽기에 실패하면 read-error 배너를 띄우고 내용을 유지합니다.", async () => {
@@ -432,9 +393,7 @@ describe("App", () => {
       });
 
       expect(await screen.findByRole("alert")).toHaveTextContent(/읽기 실패/);
-      expect(
-        screen.getByRole("heading", { name: "버전1" }),
-      ).toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "버전1" })).toBeInTheDocument();
     });
   });
 
@@ -454,9 +413,7 @@ describe("App", () => {
       });
 
       expect(await screen.findByRole("alert")).toHaveTextContent(/삭제/);
-      expect(
-        screen.getByRole("heading", { name: "버전1" }),
-      ).toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "버전1" })).toBeInTheDocument();
     });
 
     test("삭제 후 다른 내용으로 재생성되면 배너를 해제하고 새 내용을 렌더합니다.", async () => {
@@ -478,9 +435,7 @@ describe("App", () => {
         fakeDeps.emitFileWatch({ path: "/tmp/note.md", kind: "changed" });
       });
 
-      expect(
-        await screen.findByRole("heading", { name: "버전2" }),
-      ).toBeInTheDocument();
+      expect(await screen.findByRole("heading", { name: "버전2" })).toBeInTheDocument();
       expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     });
 
@@ -506,9 +461,7 @@ describe("App", () => {
       await waitFor(() => {
         expect(screen.queryByRole("alert")).not.toBeInTheDocument();
       });
-      expect(
-        screen.getByRole("heading", { name: "버전1" }),
-      ).toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "버전1" })).toBeInTheDocument();
     });
 
     test("삭제 배너는 진행 중이던 stale 재읽기가 지우지 못합니다.", async () => {
@@ -551,9 +504,7 @@ describe("App", () => {
       });
       render(<App {...fakeDeps.props} />);
 
-      expect(
-        await screen.findByRole("heading", { name: "마지막 파일" }),
-      ).toBeInTheDocument();
+      expect(await screen.findByRole("heading", { name: "마지막 파일" })).toBeInTheDocument();
       expect(fakeDeps.readPaths).toEqual(["/tmp/b.md"]);
     });
 
@@ -563,9 +514,7 @@ describe("App", () => {
       await act(async () => {});
 
       expect(fakeDeps.readPaths).toHaveLength(0);
-      expect(
-        screen.getByRole("button", { name: /파일 열기/ }),
-      ).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /파일 열기/ })).toBeInTheDocument();
     });
 
     test("실행 중 전달되면 현재 문서를 교체합니다.", async () => {
@@ -582,12 +531,8 @@ describe("App", () => {
         fakeDeps.emitOpened(["/tmp/new.md"]);
       });
 
-      expect(
-        await screen.findByRole("heading", { name: "새 문서" }),
-      ).toBeInTheDocument();
-      expect(
-        screen.queryByRole("heading", { name: "이전 문서" }),
-      ).not.toBeInTheDocument();
+      expect(await screen.findByRole("heading", { name: "새 문서" })).toBeInTheDocument();
+      expect(screen.queryByRole("heading", { name: "이전 문서" })).not.toBeInTheDocument();
     });
 
     test("pull과 emit으로 같은 파일이 중복 전달되어도 최종 상태는 같습니다.", async () => {
@@ -603,9 +548,7 @@ describe("App", () => {
       });
       await act(async () => {});
 
-      expect(
-        screen.getByRole("heading", { name: "같은 문서" }),
-      ).toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "같은 문서" })).toBeInTheDocument();
       expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     });
   });
@@ -623,9 +566,7 @@ describe("App", () => {
       await user.click(screen.getByRole("button", { name: /파일 열기/ }));
 
       // watch 실패에도 불구하고 문서가 열려야 한다
-      expect(
-        await screen.findByRole("heading", { name: "제목" }),
-      ).toBeInTheDocument();
+      expect(await screen.findByRole("heading", { name: "제목" })).toBeInTheDocument();
       expect(screen.queryByRole("alert")).not.toBeInTheDocument();
 
       // fallback으로 원래 경로가 식별자 — changed 이벤트가 반영되어야 한다
@@ -634,9 +575,7 @@ describe("App", () => {
         fakeDeps.emitFileWatch({ path: "/tmp/note.md", kind: "changed" });
       });
 
-      expect(
-        await screen.findByRole("heading", { name: "수정됨" }),
-      ).toBeInTheDocument();
+      expect(await screen.findByRole("heading", { name: "수정됨" })).toBeInTheDocument();
     });
 
     test("열기 성공 시 startWatching을 호출합니다.", async () => {
@@ -691,9 +630,156 @@ describe("App", () => {
         fakeDeps.emitFileWatch({ path: "/private/tmp/note.md", kind: "changed" });
       });
 
-      expect(
-        await screen.findByRole("heading", { name: "버전2" }),
-      ).toBeInTheDocument();
+      expect(await screen.findByRole("heading", { name: "버전2" })).toBeInTheDocument();
+    });
+  });
+
+  context("본문 링크를 클릭하는 경우", () => {
+    test("외부 링크는 openExternal로 엽니다.", async () => {
+      const user = userEvent.setup();
+      const fakeDeps = createFakeDeps({
+        pickedPaths: ["/tmp/docs/index.md"],
+        files: { "/tmp/docs/index.md": "[공식 문서](https://tauri.app/)" },
+      });
+      render(<App {...fakeDeps.props} />);
+      await user.click(screen.getByRole("button", { name: /파일 열기/ }));
+      await screen.findByRole("link", { name: "공식 문서" });
+
+      await user.click(screen.getByRole("link", { name: "공식 문서" }));
+
+      expect(fakeDeps.externalUrls).toEqual(["https://tauri.app/"]);
+      expect(fakeDeps.osOpenedFilePaths).toHaveLength(0);
+    });
+
+    test("상대 경로 마크다운 링크는 현재 문서 디렉터리 기준으로 열고 watch도 교체합니다.", async () => {
+      const user = userEvent.setup();
+      const fakeDeps = createFakeDeps({
+        pickedPaths: ["/tmp/docs/index.md"],
+        files: {
+          "/tmp/docs/index.md": "[다음 문서](other.md)",
+          "/tmp/docs/other.md": "# 다음 문서 내용",
+        },
+      });
+      render(<App {...fakeDeps.props} />);
+      await user.click(screen.getByRole("button", { name: /파일 열기/ }));
+      await screen.findByRole("link", { name: "다음 문서" });
+
+      await user.click(screen.getByRole("link", { name: "다음 문서" }));
+
+      expect(await screen.findByRole("heading", { name: "다음 문서 내용" })).toBeInTheDocument();
+      expect(fakeDeps.readPaths).toEqual(["/tmp/docs/index.md", "/tmp/docs/other.md"]);
+      expect(fakeDeps.watchedPaths).toEqual(["/tmp/docs/index.md", "/tmp/docs/other.md"]);
+    });
+
+    test("./ 접두사 경로는 정규화 없이 그대로 조합합니다.", async () => {
+      const user = userEvent.setup();
+      const fakeDeps = createFakeDeps({
+        pickedPaths: ["/tmp/docs/index.md"],
+        files: {
+          "/tmp/docs/index.md": "[다음 문서](./other.md)",
+          "/tmp/docs/./other.md": "# 점 경로 내용",
+        },
+      });
+      render(<App {...fakeDeps.props} />);
+      await user.click(screen.getByRole("button", { name: /파일 열기/ }));
+      await screen.findByRole("link", { name: "다음 문서" });
+
+      await user.click(screen.getByRole("link", { name: "다음 문서" }));
+
+      expect(await screen.findByRole("heading", { name: "점 경로 내용" })).toBeInTheDocument();
+      expect(fakeDeps.readPaths.at(-1)).toBe("/tmp/docs/./other.md");
+    });
+
+    test("../ 상위 경로도 정규화 없이 그대로 조합합니다.", async () => {
+      const user = userEvent.setup();
+      const fakeDeps = createFakeDeps({
+        pickedPaths: ["/tmp/docs/index.md"],
+        files: {
+          "/tmp/docs/index.md": "[상위 문서](../sibling.md)",
+          "/tmp/docs/../sibling.md": "# 상위 경로 내용",
+        },
+      });
+      render(<App {...fakeDeps.props} />);
+      await user.click(screen.getByRole("button", { name: /파일 열기/ }));
+      await screen.findByRole("link", { name: "상위 문서" });
+
+      await user.click(screen.getByRole("link", { name: "상위 문서" }));
+
+      // ".."를 정규화하지 않는다 — OS가 해석하고 canonicalize가 식별자를 정리한다 (스펙 §2)
+      expect(await screen.findByRole("heading", { name: "상위 경로 내용" })).toBeInTheDocument();
+      expect(fakeDeps.readPaths.at(-1)).toBe("/tmp/docs/../sibling.md");
+    });
+
+    test("percent-encoded 한글 링크를 디코딩해 엽니다.", async () => {
+      const user = userEvent.setup();
+      const fakeDeps = createFakeDeps({
+        pickedPaths: ["/tmp/docs/index.md"],
+        files: {
+          "/tmp/docs/index.md": "[한글 노트](한글%20노트.md)",
+          "/tmp/docs/한글 노트.md": "# 한글 내용",
+        },
+      });
+      render(<App {...fakeDeps.props} />);
+      await user.click(screen.getByRole("button", { name: /파일 열기/ }));
+      await screen.findByRole("link", { name: "한글 노트" });
+
+      await user.click(screen.getByRole("link", { name: "한글 노트" }));
+
+      expect(await screen.findByRole("heading", { name: "한글 내용" })).toBeInTheDocument();
+      expect(fakeDeps.readPaths.at(-1)).toBe("/tmp/docs/한글 노트.md");
+    });
+
+    test("비마크다운 링크는 OS 기본 앱으로 열고 문서는 유지합니다.", async () => {
+      const user = userEvent.setup();
+      const fakeDeps = createFakeDeps({
+        pickedPaths: ["/tmp/docs/index.md"],
+        files: { "/tmp/docs/index.md": "# 현재 문서\n\n[보고서](report.pdf)" },
+      });
+      render(<App {...fakeDeps.props} />);
+      await user.click(screen.getByRole("button", { name: /파일 열기/ }));
+      await screen.findByRole("link", { name: "보고서" });
+
+      await user.click(screen.getByRole("link", { name: "보고서" }));
+      await act(async () => {});
+
+      expect(fakeDeps.osOpenedFilePaths).toEqual(["/tmp/docs/report.pdf"]);
+      expect(fakeDeps.readPaths).toEqual(["/tmp/docs/index.md"]);
+      expect(screen.getByRole("heading", { name: "현재 문서" })).toBeInTheDocument();
+    });
+
+    test("비마크다운 열기에 실패하면 read-error 배너를 띄우고 문서를 유지합니다.", async () => {
+      const user = userEvent.setup();
+      const fakeDeps = createFakeDeps({
+        pickedPaths: ["/tmp/docs/index.md"],
+        files: { "/tmp/docs/index.md": "# 현재 문서\n\n[보고서](report.pdf)" },
+        failOpenWithOS: true,
+      });
+      render(<App {...fakeDeps.props} />);
+      await user.click(screen.getByRole("button", { name: /파일 열기/ }));
+      await screen.findByRole("link", { name: "보고서" });
+
+      await user.click(screen.getByRole("link", { name: "보고서" }));
+
+      expect(await screen.findByRole("alert")).toHaveTextContent(/열기 실패/);
+      expect(screen.getByRole("heading", { name: "현재 문서" })).toBeInTheDocument();
+    });
+
+    test("절대 경로 링크는 무시합니다.", async () => {
+      const user = userEvent.setup();
+      const fakeDeps = createFakeDeps({
+        pickedPaths: ["/tmp/docs/index.md"],
+        files: { "/tmp/docs/index.md": "[절대](/abs/file.md)" },
+      });
+      render(<App {...fakeDeps.props} />);
+      await user.click(screen.getByRole("button", { name: /파일 열기/ }));
+      await screen.findByRole("link", { name: "절대" });
+
+      await user.click(screen.getByRole("link", { name: "절대" }));
+      await act(async () => {});
+
+      expect(fakeDeps.externalUrls).toHaveLength(0);
+      expect(fakeDeps.osOpenedFilePaths).toHaveLength(0);
+      expect(fakeDeps.readPaths).toEqual(["/tmp/docs/index.md"]);
     });
   });
 });
@@ -713,6 +799,8 @@ type CreateFakeDepsParams = {
   canonicalPrefix?: string;
   /** 콜드 스타트 버퍼 — fake fetchOpenedFiles가 한 번 읽고 비운다(drain 의미론) */
   osOpenedPaths?: string[];
+  /** true면 openWithOS가 reject한다 (깨진 비마크다운 링크 배너 검증용) */
+  failOpenWithOS?: boolean;
 };
 
 function createFakeDeps({
@@ -723,10 +811,13 @@ function createFakeDeps({
   failWatching = false,
   canonicalPrefix = "",
   osOpenedPaths = [],
+  failOpenWithOS = false,
 }: CreateFakeDepsParams) {
   const remainingPicks = [...pickedPaths];
   const readPaths: string[] = [];
   const watchedPaths: string[] = [];
+  const externalUrls: string[] = [];
+  const osOpenedFilePaths: string[] = [];
   const pendingReads: Array<{ settle: () => void }> = [];
   const pendingWatchings: Array<{ settle: (path: string) => void }> = [];
   const fakeSubscriber = createFakeDragDropSubscriber();
@@ -778,11 +869,7 @@ function createFakeDeps({
         });
       });
     },
-    subscribeFileWatch: ({
-      onEvent,
-    }: {
-      onEvent: (payload: FileWatchPayload) => void;
-    }) => {
+    subscribeFileWatch: ({ onEvent }: { onEvent: (payload: FileWatchPayload) => void }) => {
       fileWatchHandler = onEvent;
       return Promise.resolve(() => {
         fileWatchHandler = null;
@@ -793,21 +880,30 @@ function createFakeDeps({
       remainingOsOpened.length = 0;
       return Promise.resolve(drained);
     },
-    subscribeOpened: ({
-      onOpen,
-    }: {
-      onOpen: (args: { paths: string[] }) => void;
-    }) => {
+    subscribeOpened: ({ onOpen }: { onOpen: (args: { paths: string[] }) => void }) => {
       openedHandler = onOpen;
       return Promise.resolve(() => {
         openedHandler = null;
       });
+    },
+    openExternal: ({ url }: { url: string }) => {
+      externalUrls.push(url);
+      return Promise.resolve();
+    },
+    openWithOS: ({ path }: { path: string }) => {
+      osOpenedFilePaths.push(path);
+      if (failOpenWithOS) {
+        return Promise.reject(new Error(`열기 실패: ${path}`));
+      }
+      return Promise.resolve();
     },
   };
   return {
     props,
     readPaths,
     watchedPaths,
+    externalUrls,
+    osOpenedFilePaths,
     emitDragDrop: fakeSubscriber.emit,
     triggerMenuOpen: () => {
       menuOpenHandler?.();
@@ -831,13 +927,7 @@ function createFakeDeps({
       }
       pending.settle();
     },
-    settlePendingWatching: ({
-      index,
-      canonicalPath,
-    }: {
-      index: number;
-      canonicalPath: string;
-    }) => {
+    settlePendingWatching: ({ index, canonicalPath }: { index: number; canonicalPath: string }) => {
       const pending = pendingWatchings[index];
       if (pending === undefined) {
         throw new Error(`대기 중인 watch가 없습니다: index ${index}`);
