@@ -15,7 +15,8 @@
     "lint": "oxlint",
     "lint:fix": "oxlint --fix",
     "prepare": "husky",
-    "typecheck": "tsc"
+    "typecheck": "tsc",
+    "check:release-versions": "node scripts/check-release-versions.mjs"
   },
   "dependencies": {
     "@shikijs/langs": "^4.2.0",
