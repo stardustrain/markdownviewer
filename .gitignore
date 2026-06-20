@@ -24,5 +24,13 @@ dist-ssr
 *.sw?
 coverage
 
+# pnpm
+.pnpm-store/
+
+# Superpowers runtime
+.superpowers/*
+!.superpowers/specs/
+!.superpowers/specs/**
+
 # Claude worktrees
 .claude/worktrees/

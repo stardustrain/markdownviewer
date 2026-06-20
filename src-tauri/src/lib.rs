@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::Duration;
 
@@ -8,7 +9,7 @@ use notify_debouncer_full::{
 use serde::Serialize;
 use tauri::{Emitter, Manager};
 
-struct WatcherState(Mutex<Option<Debouncer<RecommendedWatcher, RecommendedCache>>>);
+struct WatcherState(Mutex<HashMap<String, Debouncer<RecommendedWatcher, RecommendedCache>>>);
 
 /// 웹뷰가 뜨기 전(콜드 스타트)에 도착한 파일 경로 버퍼.
 /// 읽을 때 비운다(drain) — 웹뷰 리로드 시 이전 파일 재전달·무한 증식 방지 (스펙 §2)
@@ -76,10 +77,45 @@ fn start_watching(app: tauri::AppHandle, path: String) -> Result<String, String>
         .watch(&parent, RecursiveMode::NonRecursive)
         .map_err(|err| err.to_string())?;
 
-    // 교체 = 이전 Debouncer drop = 정지 (drop 가드, non-blocking)
-    *app.state::<WatcherState>().0.lock().unwrap() = Some(debouncer);
+    // 같은 문서 키의 기존 Debouncer는 lock 해제 뒤 drop되어 정지된다.
+    let previous_watcher = {
+        app.state::<WatcherState>()
+            .0
+            .lock()
+            .unwrap()
+            .insert(emit_path.clone(), debouncer)
+    };
+    drop(previous_watcher);
 
     Ok(emit_path)
+}
+
+#[tauri::command]
+fn stop_watching(app: tauri::AppHandle, path: String) {
+    let removed_watcher = {
+        app.state::<WatcherState>()
+            .0
+            .lock()
+            .unwrap()
+            .remove(&path)
+    };
+    if removed_watcher.is_some() {
+        drop(removed_watcher);
+        return;
+    }
+
+    let Ok(canonical) = std::fs::canonicalize(&path) else {
+        return;
+    };
+    let canonical_key = canonical.to_string_lossy().into_owned();
+    let removed_watcher = {
+        app.state::<WatcherState>()
+            .0
+            .lock()
+            .unwrap()
+            .remove(&canonical_key)
+    };
+    drop(removed_watcher);
 }
 
 #[tauri::command]
@@ -92,11 +128,12 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
-        .manage(WatcherState(Mutex::new(None)))
+        .manage(WatcherState(Mutex::new(HashMap::new())))
         .manage(OpenedFiles(Mutex::new(Vec::new())))
         .invoke_handler(tauri::generate_handler![
             read_file,
             start_watching,
+            stop_watching,
             opened_files
         ])
         .build(tauri::generate_context!())

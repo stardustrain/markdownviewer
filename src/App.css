@@ -43,11 +43,148 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, sans-serif;
 }
 
-.error-banner {
+.tabbar {
   position: sticky;
   top: 0;
-  padding: 8px 16px;
-  background-color: #b62324;
-  color: #ffffff;
+  z-index: 2;
+  border-bottom: 1px solid #d0d7de;
+  background-color: #f6f8fa;
   font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+.tabbar-strip {
+  display: flex;
+  align-items: stretch;
+  min-height: 40px;
+}
+
+.tabbar-tabs {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.tabbar-list {
+  display: flex;
+  align-items: stretch;
+  width: max-content;
+  min-height: 40px;
+}
+
+.tabbar-item {
+  display: flex;
+  align-items: center;
+  flex: 0 0 220px;
+  min-width: 140px;
+  border-right: 1px solid #d0d7de;
+}
+
+.tabbar-item[data-state="active"] {
+  background-color: #ffffff;
+}
+
+.tabbar-trigger {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  height: 40px;
+  padding: 0 40px 0 12px;
+  border: 0;
+  background: transparent;
+  color: #24292f;
+  font: inherit;
+}
+
+.tabbar-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tabbar-status {
+  flex: 0 0 auto;
+  color: #b62324;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.tabbar-close-list {
+  position: absolute;
+  inset: 0 auto 0 0;
+  display: flex;
+  width: max-content;
+  min-height: 40px;
+  pointer-events: none;
+}
+
+.tabbar-close-slot {
+  display: flex;
+  flex: 0 0 220px;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 140px;
+  pointer-events: none;
+}
+
+.tabbar-close,
+.tabbar-open {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  margin: 6px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #57606a;
+  font: inherit;
+}
+
+.tabbar-close {
+  pointer-events: auto;
+}
+
+.tabbar-panel:focus-visible {
+  outline: 2px solid #0969da;
+  outline-offset: -2px;
+}
+
+.tabbar-close:hover,
+.tabbar-open:hover,
+.tabbar-trigger:focus-visible,
+.tabbar-close:focus-visible,
+.tabbar-open:focus-visible {
+  outline: 2px solid #0969da;
+  outline-offset: -2px;
+}
+
+@media (prefers-color-scheme: dark) {
+  .tabbar {
+    border-bottom-color: #30363d;
+    background-color: #161b22;
+  }
+
+  .tabbar-item {
+    border-right-color: #30363d;
+  }
+
+  .tabbar-item[data-state="active"] {
+    background-color: #0d1117;
+  }
+
+  .tabbar-trigger {
+    color: #f0f6fc;
+  }
+
+  .tabbar-status {
+    color: #ff7b72;
+  }
+
+  .tabbar-close,
+  .tabbar-open {
+    color: #8b949e;
+  }
 }
