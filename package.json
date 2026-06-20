@@ -59,11 +59,6 @@
     "vite": "^8.0.0",
     "vitest": "4.1.8"
   },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "esbuild"
-    ]
-  },
   "lint-staged": {
     "*.{js,jsx,ts,tsx,mjs,cjs}": [
       "oxfmt",
