@@ -157,16 +157,18 @@ describe("App", () => {
       render(<App {...fakeDeps.props} />);
 
       await user.click(screen.getByRole("button", { name: /파일 열기/ }));
-      expect(await screen.findByRole("alert")).toHaveTextContent(/읽기 실패/);
+      const firstAlert = await screen.findByRole("alert");
+      expect(firstAlert).toHaveTextContent(/읽기 실패/);
 
       fireEvent.click(screen.getByRole("button", { name: "알림 닫기" }));
-      await waitFor(() => {
-        expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-      });
 
       await user.click(screen.getByRole("button", { name: /파일 열기/ }));
 
-      expect(await screen.findByRole("alert")).toHaveTextContent(/읽기 실패/);
+      await waitFor(() => {
+        const currentAlert = screen.getByRole("alert");
+        expect(currentAlert).toHaveTextContent(/읽기 실패/);
+        expect(currentAlert).not.toBe(firstAlert);
+      });
     });
 
     test("실패 후 다시 성공하면 에러 토스트가 사라집니다.", async () => {

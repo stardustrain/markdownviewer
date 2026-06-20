@@ -48,6 +48,7 @@ type MutableRef<T> = {
 };
 
 type AppNotice = {
+  id: number;
   kind: "read-error" | "file-removed";
   message: string;
 };
@@ -123,7 +124,11 @@ function App({
   const activeTab = getActiveTab({ state: tabsState });
   const visibleNotice = notice ?? activeTab?.notice ?? null;
   const visibleNoticeSource = notice !== null ? "global" : getTabNoticeSource({ tab: activeTab });
-  const visibleNoticeToastId = visibleNoticeSource === null ? null : `app-notice:${visibleNoticeSource}`;
+  const visibleNoticeToastId =
+    visibleNotice === null || visibleNoticeSource === null
+      ? null
+      : `app-notice:${visibleNoticeSource}:${visibleNotice.id}`;
+  const visibleNoticeId = visibleNotice?.id ?? null;
   const visibleNoticeKind = visibleNotice?.kind ?? null;
   const visibleNoticeMessage = visibleNotice?.message ?? null;
   const tabsRef = useRef<TabsState>(initialTabsState);
@@ -131,6 +136,7 @@ function App({
   const visibleNoticeRef = useRef<AppNotice | null>(null);
   const visibleNoticeToastIdRef = useRef<string | null>(null);
   const shouldClearNoticeOnDismissRef = useRef(false);
+  const nextNoticeIdRef = useRef(1);
   const nextTabIdRef = useRef(1);
   const latestOpenRequestRef = useRef(0);
 
@@ -155,12 +161,18 @@ function App({
     [applyTabsState],
   );
 
+  const createNotice = useCallback(({ kind, message }: { kind: AppNotice["kind"]; message: string }) => {
+    const id = nextNoticeIdRef.current;
+    nextNoticeIdRef.current += 1;
+    return { id, kind, message };
+  }, []);
+
   const clearVisibleNotice = useCallback(
-    ({ kind, message }: AppNotice) => {
-      if (!isMatchingNotice({ notice: visibleNoticeRef.current, kind, message })) {
+    ({ id, kind, message }: AppNotice) => {
+      if (!isMatchingNotice({ notice: visibleNoticeRef.current, id, kind, message })) {
         return;
       }
-      if (isMatchingNotice({ notice: noticeRef.current, kind, message })) {
+      if (isMatchingNotice({ notice: noticeRef.current, id, kind, message })) {
         setNotice(null);
         return;
       }
@@ -173,7 +185,7 @@ function App({
       if (currentActiveTab === undefined) {
         return;
       }
-      if (!isMatchingNotice({ notice: currentActiveTab.notice, kind, message })) {
+      if (!isMatchingNotice({ notice: currentActiveTab.notice, id, kind, message })) {
         return;
       }
 
@@ -223,10 +235,13 @@ function App({
           return;
         }
         shouldClearNoticeOnDismissRef.current = false;
-        clearVisibleNotice({ kind: visibleNoticeKind, message: visibleNoticeMessage });
+        if (visibleNoticeId === null || visibleNoticeKind === null || visibleNoticeMessage === null) {
+          return;
+        }
+        clearVisibleNotice({ id: visibleNoticeId, kind: visibleNoticeKind, message: visibleNoticeMessage });
       },
     });
-  }, [clearVisibleNotice, visibleNoticeKind, visibleNoticeMessage, visibleNoticeToastId]);
+  }, [clearVisibleNotice, visibleNoticeId, visibleNoticeKind, visibleNoticeMessage, visibleNoticeToastId]);
 
   useEffect(() => {
     return () => {
@@ -282,7 +297,7 @@ function App({
 
       if (currentUpdate.openedTabId === null) {
         if (failedResult !== undefined && requestSequence === latestOpenRequestRef.current) {
-          setNotice({ kind: "read-error", message: String(failedResult.error) });
+          setNotice(createNotice({ kind: "read-error", message: String(failedResult.error) }));
         }
         return;
       }
@@ -293,7 +308,7 @@ function App({
 
       setNotice(null);
     },
-    [applyTabsState, readFile, startWatching],
+    [applyTabsState, createNotice, readFile, startWatching],
   );
 
   const openPath = useCallback(
@@ -330,11 +345,11 @@ function App({
         }
         updateTab(tabId, (current) => ({
           ...current,
-          notice: { kind: "read-error", message: String(error) },
+          notice: createNotice({ kind: "read-error", message: String(error) }),
         }));
       }
     },
-    [readFile, updateTab],
+    [createNotice, readFile, updateTab],
   );
 
   const handleFileWatchEvent = useCallback(
@@ -347,17 +362,17 @@ function App({
         updateTab(tab.id, (current) => ({
           ...current,
           reloadSequence: current.reloadSequence + 1,
-          notice: {
+          notice: createNotice({
             kind: "file-removed",
             message: "파일이 삭제되거나 이동되었습니다",
-          },
+          }),
           status: "deleted",
         }));
         return;
       }
       void reloadTab({ tabId: tab.id, path: tab.path });
     },
-    [getTabByPath, reloadTab, updateTab],
+    [createNotice, getTabByPath, reloadTab, updateTab],
   );
 
   useFileWatch({
@@ -466,10 +481,10 @@ function App({
         return;
       }
       void openWithOS({ path: resolvedPath }).catch((error) => {
-        setNotice({ kind: "read-error", message: String(error) });
+        setNotice(createNotice({ kind: "read-error", message: String(error) }));
       });
     },
-    [getActiveTabPath, openExternal, openPaths, openWithOS],
+    [createNotice, getActiveTabPath, openExternal, openPaths, openWithOS],
   );
 
   const handleDrop = useCallback(
@@ -619,10 +634,12 @@ function getTabNoticeSource({ tab }: { tab: DocumentTab | null }) {
 
 function isMatchingNotice({
   notice,
+  id,
   kind,
   message,
 }: {
   notice: AppNotice | null;
+  id: AppNotice["id"];
   kind: AppNotice["kind"];
   message: AppNotice["message"];
 }) {
@@ -630,7 +647,7 @@ function isMatchingNotice({
     return false;
   }
 
-  return notice.kind === kind && notice.message === message;
+  return notice.id === id && notice.kind === kind && notice.message === message;
 }
 
 async function openMarkdownPath({
