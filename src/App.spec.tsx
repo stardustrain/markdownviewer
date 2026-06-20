@@ -128,7 +128,7 @@ describe("App", () => {
       expect(screen.getByRole("button", { name: /파일 열기/ })).toBeInTheDocument();
     });
 
-    test("읽기에 실패하면 에러 배너를 띄우고 기존 문서를 유지합니다.", async () => {
+    test("읽기에 실패하면 에러 토스트를 띄우고 기존 문서를 유지합니다.", async () => {
       const user = userEvent.setup();
       const fakeDeps = createFakeDeps({
         pickedPaths: ["/tmp/good.md", "/tmp/broken.md"],
@@ -144,11 +144,32 @@ describe("App", () => {
       });
 
       expect(await screen.findByRole("alert")).toHaveTextContent(/읽기 실패/);
+      expect(document.querySelector(".error-banner")).not.toBeInTheDocument();
       expect(screen.getByRole("heading", { name: "기존 문서" })).toBeInTheDocument();
       expect(screen.getAllByRole("tab")).toHaveLength(1);
     });
 
-    test("실패 후 다시 성공하면 에러 배너가 사라집니다.", async () => {
+    test("읽기 실패 토스트를 닫은 뒤 같은 읽기 실패를 다시 보여줍니다.", async () => {
+      const user = userEvent.setup();
+      const fakeDeps = createFakeDeps({
+        pickedPaths: ["/tmp/broken.md", "/tmp/broken.md"],
+      });
+      render(<App {...fakeDeps.props} />);
+
+      await user.click(screen.getByRole("button", { name: /파일 열기/ }));
+      expect(await screen.findByRole("alert")).toHaveTextContent(/읽기 실패/);
+
+      fireEvent.click(screen.getByRole("button", { name: "알림 닫기" }));
+      await waitFor(() => {
+        expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+      });
+
+      await user.click(screen.getByRole("button", { name: /파일 열기/ }));
+
+      expect(await screen.findByRole("alert")).toHaveTextContent(/읽기 실패/);
+    });
+
+    test("실패 후 다시 성공하면 에러 토스트가 사라집니다.", async () => {
       const user = userEvent.setup();
       const fakeDeps = createFakeDeps({
         pickedPaths: ["/tmp/broken.md", "/tmp/good.md"],
@@ -161,7 +182,9 @@ describe("App", () => {
       await user.click(screen.getByRole("button", { name: /파일 열기/ }));
 
       expect(await screen.findByRole("heading", { name: "복구된 문서" })).toBeInTheDocument();
-      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+      await waitFor(() => {
+        expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+      });
     });
 
     test("읽기가 완료되기 전에 다른 열기가 시작되어도 늦게 완료된 파일을 탭으로 추가합니다.", async () => {
@@ -502,7 +525,7 @@ describe("App", () => {
       expect(await screen.findByRole("heading", { name: "문서A 변경" })).toBeInTheDocument();
     });
 
-    test("재읽기에 실패하면 read-error 배너를 띄우고 내용을 유지합니다.", async () => {
+    test("재읽기에 실패하면 read-error 토스트를 띄우고 내용을 유지합니다.", async () => {
       const user = userEvent.setup();
       const fakeDeps = createFakeDeps({
         pickedPaths: ["/tmp/note.md"],
@@ -523,7 +546,7 @@ describe("App", () => {
   });
 
   context("열린 파일이 삭제/이동된 경우", () => {
-    test("내용을 유지하고 삭제 배너를 띄웁니다.", async () => {
+    test("내용을 유지하고 삭제 토스트를 띄웁니다.", async () => {
       const user = userEvent.setup();
       const fakeDeps = createFakeDeps({
         pickedPaths: ["/tmp/note.md"],
@@ -541,7 +564,7 @@ describe("App", () => {
       expect(screen.getByRole("heading", { name: "버전1" })).toBeInTheDocument();
     });
 
-    test("비활성 탭이 삭제되면 선택 시 삭제 배너를 보여주고 내용을 유지합니다.", async () => {
+    test("비활성 탭이 삭제되면 선택 시 삭제 토스트를 보여주고 내용을 유지합니다.", async () => {
       const user = userEvent.setup();
       const fakeDeps = createFakeDeps({
         osOpenedPaths: ["/tmp/a.md", "/tmp/b.md"],
@@ -560,7 +583,7 @@ describe("App", () => {
       expect(screen.queryByRole("alert")).not.toBeInTheDocument();
       await user.click(screen.getByRole("tab", { name: "a.md 삭제됨 (/tmp/a.md)" }));
 
-      expect(screen.getByRole("alert")).toHaveTextContent(/삭제/);
+      expect(await screen.findByRole("alert")).toHaveTextContent(/삭제/);
       expect(screen.getByRole("heading", { name: "문서A" })).toBeInTheDocument();
     });
 
@@ -591,7 +614,47 @@ describe("App", () => {
       expect(screen.getByRole("alert")).not.toHaveTextContent(/삭제/);
     });
 
-    test("삭제 후 다른 내용으로 재생성되면 배너를 해제하고 새 내용을 렌더합니다.", async () => {
+    test("같은 메시지의 global notice를 닫으면 active tab notice를 다시 보여줍니다.", async () => {
+      const user = userEvent.setup();
+      let shouldFailFirstPath = false;
+      const fakeDeps = createFakeDeps({
+        pickedPaths: ["/tmp/a.md", "/tmp/b.md"],
+      });
+      render(
+        <App
+          {...fakeDeps.props}
+          readFile={({ path }) => {
+            if (path === "/tmp/a.md" && !shouldFailFirstPath) {
+              return Promise.resolve("# 문서A");
+            }
+            return Promise.reject(new Error("동일한 읽기 실패"));
+          }}
+        />,
+      );
+      await user.click(screen.getByRole("button", { name: /파일 열기/ }));
+      await screen.findByRole("heading", { name: "문서A" });
+
+      shouldFailFirstPath = true;
+      act(() => {
+        fakeDeps.emitFileWatch({ path: "/tmp/a.md", kind: "changed" });
+      });
+      const firstAlert = await screen.findByRole("alert");
+      expect(firstAlert).toHaveTextContent("동일한 읽기 실패");
+
+      act(() => {
+        fakeDeps.triggerMenuOpen();
+      });
+      await act(async () => {});
+      fireEvent.click(screen.getByRole("button", { name: "알림 닫기" }));
+
+      await waitFor(() => {
+        const currentAlert = screen.getByRole("alert");
+        expect(currentAlert).toHaveTextContent("동일한 읽기 실패");
+        expect(currentAlert).not.toBe(firstAlert);
+      });
+    });
+
+    test("삭제 후 다른 내용으로 재생성되면 토스트를 해제하고 새 내용을 렌더합니다.", async () => {
       const user = userEvent.setup();
       const fakeDeps = createFakeDeps({
         pickedPaths: ["/tmp/note.md"],
@@ -611,10 +674,12 @@ describe("App", () => {
       });
 
       expect(await screen.findByRole("heading", { name: "버전2" })).toBeInTheDocument();
-      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+      await waitFor(() => {
+        expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+      });
     });
 
-    test("삭제 후 같은 내용으로 재생성되어도 배너를 해제합니다.", async () => {
+    test("삭제 후 같은 내용으로 재생성되어도 토스트를 해제합니다.", async () => {
       const user = userEvent.setup();
       const fakeDeps = createFakeDeps({
         pickedPaths: ["/tmp/note.md"],
@@ -639,7 +704,7 @@ describe("App", () => {
       expect(screen.getByRole("heading", { name: "버전1" })).toBeInTheDocument();
     });
 
-    test("삭제 배너는 진행 중이던 stale 재읽기가 지우지 못합니다.", async () => {
+    test("삭제 토스트는 진행 중이던 stale 재읽기가 지우지 못합니다.", async () => {
       const user = userEvent.setup();
       const fakeDeps = createFakeDeps({
         pickedPaths: ["/tmp/note.md"],
@@ -1078,7 +1143,7 @@ describe("App", () => {
       expect(screen.getByRole("heading", { name: "현재 문서" })).toBeInTheDocument();
     });
 
-    test("비마크다운 열기에 실패하면 read-error 배너를 띄우고 문서를 유지합니다.", async () => {
+    test("비마크다운 열기에 실패하면 read-error 토스트를 띄우고 문서를 유지합니다.", async () => {
       const user = userEvent.setup();
       const fakeDeps = createFakeDeps({
         pickedPaths: ["/tmp/docs/index.md"],
@@ -1130,7 +1195,7 @@ type CreateFakeDepsParams = {
   canonicalPrefix?: string;
   /** 콜드 스타트 버퍼 — fake fetchOpenedFiles가 한 번 읽고 비운다(drain 의미론) */
   osOpenedPaths?: string[];
-  /** true면 openWithOS가 reject한다 (깨진 비마크다운 링크 배너 검증용) */
+  /** true면 openWithOS가 reject한다 (깨진 비마크다운 링크 토스트 검증용) */
   failOpenWithOS?: boolean;
 };
 

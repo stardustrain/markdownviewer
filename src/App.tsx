@@ -2,7 +2,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { openPath as openPathWithDefaultApp, openUrl } from "@tauri-apps/plugin-opener";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { type MouseEvent, useCallback, useEffect, useRef, useState } from "react";
+import { Toaster, toast, type ToasterProps } from "sonner";
 import { MarkdownView } from "./components/MarkdownView";
 import { TabBar } from "./components/TabBar";
 import { type DragDropSubscriber, useFileDrop } from "./hooks/useFileDrop";
@@ -52,6 +53,10 @@ type AppNotice = {
 };
 
 const initialTabsState: TabsState = { tabs: [], activeTabId: null };
+const appToastOptions = {
+  closeButtonAriaLabel: "알림 닫기",
+};
+const appToastSwipeDirections: ToasterProps["swipeDirections"] = [];
 
 type AppProps = {
   /** 파일 선택 다이얼로그 — 취소 시 null
@@ -117,9 +122,20 @@ function App({
   const [notice, setNotice] = useState<AppNotice | null>(null);
   const activeTab = getActiveTab({ state: tabsState });
   const visibleNotice = notice ?? activeTab?.notice ?? null;
+  const visibleNoticeSource = notice !== null ? "global" : getTabNoticeSource({ tab: activeTab });
+  const visibleNoticeToastId = visibleNoticeSource === null ? null : `app-notice:${visibleNoticeSource}`;
+  const visibleNoticeKind = visibleNotice?.kind ?? null;
+  const visibleNoticeMessage = visibleNotice?.message ?? null;
   const tabsRef = useRef<TabsState>(initialTabsState);
+  const noticeRef = useRef<AppNotice | null>(null);
+  const visibleNoticeRef = useRef<AppNotice | null>(null);
+  const visibleNoticeToastIdRef = useRef<string | null>(null);
+  const shouldClearNoticeOnDismissRef = useRef(false);
   const nextTabIdRef = useRef(1);
   const latestOpenRequestRef = useRef(0);
+
+  noticeRef.current = notice;
+  visibleNoticeRef.current = visibleNotice;
 
   const applyTabsState = useCallback((getNextState: (current: TabsState) => TabsState) => {
     setTabsState((current) => {
@@ -138,6 +154,89 @@ function App({
     },
     [applyTabsState],
   );
+
+  const clearVisibleNotice = useCallback(
+    ({ kind, message }: AppNotice) => {
+      if (!isMatchingNotice({ notice: visibleNoticeRef.current, kind, message })) {
+        return;
+      }
+      if (isMatchingNotice({ notice: noticeRef.current, kind, message })) {
+        setNotice(null);
+        return;
+      }
+
+      const { activeTabId, tabs } = tabsRef.current;
+      if (activeTabId === null) {
+        return;
+      }
+      const currentActiveTab = tabs.find((tab) => tab.id === activeTabId);
+      if (currentActiveTab === undefined) {
+        return;
+      }
+      if (!isMatchingNotice({ notice: currentActiveTab.notice, kind, message })) {
+        return;
+      }
+
+      updateTab(currentActiveTab.id, (current) => ({ ...current, notice: null }));
+    },
+    [updateTab],
+  );
+
+  const handleAppToastClickCapture = useCallback((event: MouseEvent<HTMLElement>) => {
+    if (!(event.target instanceof Element)) {
+      return;
+    }
+    const closeButton = event.target.closest("button");
+    if (!(closeButton instanceof HTMLButtonElement)) {
+      return;
+    }
+    if (closeButton.closest("[data-sonner-toast]") === null) {
+      return;
+    }
+    if (closeButton.getAttribute("aria-label") !== appToastOptions.closeButtonAriaLabel) {
+      return;
+    }
+
+    shouldClearNoticeOnDismissRef.current = true;
+  }, []);
+
+  useEffect(() => {
+    const currentToastId = visibleNoticeToastIdRef.current;
+    if (visibleNoticeKind === null || visibleNoticeMessage === null || visibleNoticeToastId === null) {
+      if (currentToastId !== null) {
+        toast.dismiss(currentToastId);
+        visibleNoticeToastIdRef.current = null;
+      }
+      return;
+    }
+
+    if (currentToastId !== null && currentToastId !== visibleNoticeToastId) {
+      toast.dismiss(currentToastId);
+    }
+    visibleNoticeToastIdRef.current = visibleNoticeToastId;
+
+    toast.error(<span role="alert">{visibleNoticeMessage}</span>, {
+      id: visibleNoticeToastId,
+      duration: Infinity,
+      onDismiss: () => {
+        if (!shouldClearNoticeOnDismissRef.current) {
+          return;
+        }
+        shouldClearNoticeOnDismissRef.current = false;
+        clearVisibleNotice({ kind: visibleNoticeKind, message: visibleNoticeMessage });
+      },
+    });
+  }, [clearVisibleNotice, visibleNoticeKind, visibleNoticeMessage, visibleNoticeToastId]);
+
+  useEffect(() => {
+    return () => {
+      const currentToastId = visibleNoticeToastIdRef.current;
+      if (currentToastId === null) {
+        return;
+      }
+      toast.dismiss(currentToastId);
+    };
+  }, []);
 
   const getTabByPath = useCallback((path: string) => {
     return tabsRef.current.tabs.find((tab) => tab.path === path) ?? null;
@@ -430,12 +529,15 @@ function App({
   );
 
   return (
-    <main className={isDragging ? "app dragging" : "app"}>
-      {visibleNotice !== null && (
-        <div role="alert" className="error-banner">
-          {visibleNotice.message}
-        </div>
-      )}
+    <main className={isDragging ? "app dragging" : "app"} onClickCapture={handleAppToastClickCapture}>
+      <Toaster
+        closeButton
+        containerAriaLabel="알림"
+        richColors
+        position="top-right"
+        swipeDirections={appToastSwipeDirections}
+        toastOptions={appToastOptions}
+      />
       {activeTab === null ? (
         <div className="empty-state">
           <p>마크다운 파일을 끌어다 놓거나 열기 버튼을 누르세요</p>
@@ -505,6 +607,30 @@ function installDefaultAppMenu({ onOpen }: { onOpen: () => void }) {
 
 function getActiveTab({ state }: { state: TabsState }): DocumentTab | null {
   return state.tabs.find((tab) => tab.id === state.activeTabId) ?? null;
+}
+
+function getTabNoticeSource({ tab }: { tab: DocumentTab | null }) {
+  if (tab?.notice === null || tab === null) {
+    return null;
+  }
+
+  return `tab:${tab.id}`;
+}
+
+function isMatchingNotice({
+  notice,
+  kind,
+  message,
+}: {
+  notice: AppNotice | null;
+  kind: AppNotice["kind"];
+  message: AppNotice["message"];
+}) {
+  if (notice === null) {
+    return false;
+  }
+
+  return notice.kind === kind && notice.message === message;
 }
 
 async function openMarkdownPath({
